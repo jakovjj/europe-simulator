@@ -1,0 +1,597 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #2980b9 0%, #3498db 25%, #5dade2 50%, #85c1e9 75%, #aed6f1 100%);
+    background-size: 400% 400%;
+    animation: waterWave 8s ease-in-out infinite;
+}
+
+@keyframes waterWave {
+    0%, 100% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+}
+
+#map {
+    height: 100vh;
+    width: 100vw;
+    z-index: 1;
+    background: transparent;
+    position: relative;
+}
+
+/* Custom country styling */
+.country-layer {
+    stroke: #2c3e50;
+    stroke-width: 1.5;
+    fill: #3498db;
+    fill-opacity: 0.7;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+/* Game Interface */
+#game-interface {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    min-width: 280px;
+    max-width: 350px;
+}
+
+.game-status {
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+#player-count {
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+
+#game-timer {
+    font-size: 18px;
+    font-weight: bold;
+    color: #27ae60;
+    margin-bottom: 10px;
+}
+
+#countdown {
+    font-size: 20px;
+    font-weight: bold;
+    color: #e74c3c;
+    margin-bottom: 10px;
+}
+
+.lobby-section {
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.country-selection {
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.country-selection p {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    color: #34495e;
+}
+
+.ready-btn {
+    width: 100%;
+    padding: 12px;
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.ready-btn:hover {
+    background: #2ecc71;
+}
+
+.ready-btn.ready {
+    background: #e74c3c;
+}
+
+.ready-btn.ready:hover {
+    background: #c0392b;
+}
+
+.game-controls {
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.exit-btn {
+    width: 100%;
+    padding: 12px;
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.exit-btn:hover {
+    background: #c0392b;
+}
+
+.room-controls {
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.room-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.room-btn {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.create-btn {
+    background: #3498db;
+    color: white;
+}
+
+.create-btn:hover {
+    background: #2980b9;
+}
+
+.join-room-section {
+    display: flex;
+    gap: 5px;
+}
+
+#room-code-input {
+    flex: 1;
+    padding: 10px;
+    border: 2px solid #bdc3c7;
+    border-radius: 5px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+#room-code-input:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.join-btn-room {
+    background: #27ae60;
+    color: white;
+    flex-shrink: 0;
+}
+
+.join-btn-room:hover {
+    background: #2ecc71;
+}
+
+.start-btn {
+    background: #e67e22;
+    color: white;
+}
+
+.start-btn:hover:not(:disabled) {
+    background: #d35400;
+}
+
+.start-btn:disabled {
+    background: #bdc3c7;
+    color: #7f8c8d;
+    cursor: not-allowed !important;
+    opacity: 0.5;
+}
+
+.player-list {
+    border-top: 1px solid #ecf0f1;
+    padding-top: 15px;
+}
+
+.player-list h4 {
+    margin: 0 0 10px 0;
+    color: #2c3e50;
+}
+
+.player-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.player-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    border: 1px solid #2c3e50;
+}
+
+.player-info {
+    flex: 1;
+    font-size: 14px;
+    color: #2c3e50;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Mobile responsive for game interface */
+@media (max-width: 768px) {
+    #game-interface {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        max-width: none;
+        min-width: auto;
+    }
+}
+
+/* Country Info Side Panel */
+.info-panel {
+    position: fixed;
+    top: 0;
+    right: -400px; /* Start hidden off-screen */
+    width: 350px;
+    height: 100vh;
+    background: white;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    transition: right 0.3s ease;
+    overflow-y: auto;
+    border-left: 3px solid #2c3e50;
+    font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+}
+
+.info-panel.active {
+    right: 0; /* Slide in when active */
+}
+
+.panel-header {
+    background: #2c3e50;
+    color: white;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1001;
+}
+
+.panel-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.close-btn {
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    color: white;
+    transition: color 0.3s ease;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.3s;
+}
+
+.close-btn:hover {
+    background-color: rgba(255,255,255,0.2);
+}
+
+#panel-body {
+    padding: 20px;
+    color: #2c3e50;
+}
+
+.no-selection {
+    text-align: center;
+    color: #7f8c8d;
+    font-style: italic;
+    padding: 40px 20px;
+}
+
+.country-info {
+    text-align: center;
+}
+
+.country-flag {
+    width: 80px;
+    height: auto;
+    margin: 0 auto 15px;
+    border-radius: 6px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+}
+
+.country-name {
+    font-size: 24px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 20px;
+    font-family: 'Arial', sans-serif;
+}
+
+.country-details {
+    text-align: left;
+    margin-top: 15px;
+}
+
+.detail-item {
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 4px solid #3498db;
+    display: flex;
+    align-items: center;
+}
+
+.detail-label {
+    font-weight: bold;
+    color: #2c3e50;
+    display: flex;
+    align-items: center;
+    margin-right: 15px;
+    min-width: 100px;
+    font-size: 14px;
+}
+
+.detail-label::before {
+    content: '';
+    margin-right: 8px;
+    font-size: 16px;
+}
+
+.detail-label[data-icon="capital"]::before {
+    content: '🏛️';
+}
+
+.detail-label[data-icon="population"]::before {
+    content: '👥';
+}
+
+.detail-label[data-icon="gdp"]::before {
+    content: '💰';
+}
+
+.detail-label[data-icon="owner"]::before {
+    content: '👑';
+}
+
+.detail-value {
+    color: #34495e;
+    font-size: 16px;
+    flex: 1;
+}
+
+.player-owner {
+    background: #f8f9fa;
+    border-left-color: #e74c3c;
+    font-weight: bold;
+}
+
+.player-owner .detail-value {
+    font-weight: bold;
+}
+
+.loading {
+    text-align: center;
+    padding: 30px;
+    font-size: 16px;
+    color: #7f8c8d;
+}
+
+.error {
+    text-align: center;
+    padding: 30px;
+    font-size: 14px;
+    color: #e74c3c;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .info-panel {
+        top: auto;
+        bottom: -100vh; /* Start hidden below screen */
+        right: 0;
+        left: 0;
+        width: 100%;
+        height: 60vh;
+        border-left: none;
+        border-top: 3px solid #2c3e50;
+        transition: bottom 0.3s ease;
+    }
+    
+    .info-panel.active {
+        bottom: 0; /* Slide up when active */
+    }
+    
+    .country-flag {
+        width: 60px;
+    }
+    
+    .country-name {
+        font-size: 20px;
+    }
+    
+    .detail-label {
+        min-width: 70px;
+        font-size: 13px;
+    }
+    
+    .detail-value {
+        font-size: 13px;
+    }
+}
+
+/* Map controls styling */
+.leaflet-control-attribution {
+    background: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Hide the default map background */
+.leaflet-container {
+    background: transparent !important;
+}
+
+.leaflet-tile-pane {
+    opacity: 0 !important; /* Hide all background tiles */
+}
+
+/* Europe border styling */
+.leaflet-interactive {
+    pointer-events: none; /* Make border non-interactive */
+}
+
+.leaflet-interactive[stroke-dasharray] {
+    animation: borderPulse 3s ease-in-out infinite alternate;
+}
+
+/* Clipping mask styling */
+.leaflet-overlay-pane svg {
+    overflow: hidden; /* Ensure clean clipping */
+}
+
+/* Enhanced border visibility */
+.leaflet-interactive[stroke-dasharray="10, 10"] {
+    stroke-width: 4 !important;
+    opacity: 0.9 !important;
+}
+
+@keyframes borderPulse {
+    from { 
+        opacity: 0.7; 
+        stroke-width: 3;
+    }
+    to { 
+        opacity: 1; 
+        stroke-width: 4;
+    }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .popup-content {
+        width: 95%;
+        padding: 20px;
+        max-height: 90vh;
+    }
+    
+    .country-name {
+        font-size: 24px;
+    }
+    
+    .country-flag {
+        width: 80px;
+    }
+}
+
+/* Player Status Bar */
+.player-status-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 10px;
+    padding: 15px 25px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    display: flex;
+    gap: 30px;
+    align-items: center;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.status-value {
+    font-size: 16px;
+    font-weight: bold;
+    color: #27ae60;
+}
+
+.power-rate {
+    font-size: 12px;
+    color: #7f8c8d;
+    font-style: italic;
+    margin-left: 5px;
+}
+
+.economy-rate {
+    font-size: 12px;
+    color: #7f8c8d;
+    font-style: italic;
+    margin-left: 5px;
+}
+
+@media (max-width: 768px) {
+    .player-status-bar {
+        bottom: 10px;
+        padding: 12px 20px;
+        gap: 20px;
+    }
+    
+    .status-label {
+        font-size: 13px;
+    }
+    
+    .status-value {
+        font-size: 15px;
+    }
+}
