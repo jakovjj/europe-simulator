@@ -6,6 +6,68 @@ let selectedCountry = null;
 let gameState = 'loading';
 let isLoading = true;
 
+// GDP data for European countries (in billions USD, 2023 estimates)
+const gdpData = {
+    'Germany': 4259.9,
+    'United Kingdom': 3131.0,
+    'France': 2937.5,
+    'Italy': 2110.0,
+    'Spain': 1397.5,
+    'Netherlands': 909.9,
+    'Switzerland': 807.7,
+    'Belgium': 529.6,
+    'Austria': 479.8,
+    'Poland': 679.4,
+    'Sweden': 541.2,
+    'Norway': 482.2,
+    'Denmark': 390.7,
+    'Finland': 297.3,
+    'Portugal': 249.9,
+    'Czechia': 290.9,
+    'Czech Republic': 290.9,
+    'Romania': 284.1,
+    'Hungary': 181.8,
+    'Slovakia': 115.5,
+    'Slovenia': 61.7,
+    'Luxembourg': 86.3,
+    'Croatia': 70.0,
+    'Bulgaria': 84.1,
+    'Lithuania': 68.0,
+    'Latvia': 40.9,
+    'Estonia': 38.1,
+    'Cyprus': 28.4,
+    'Malta': 17.3,
+    'Serbia': 63.1,
+    'Bosnia and Herzegovina': 24.5,
+    'North Macedonia': 13.8,
+    'Macedonia': 13.8,
+    'Montenegro': 6.2,
+    'Albania': 18.3,
+    'Moldova': 13.9,
+    'Republic of Moldova': 13.9,
+    'Ukraine': 170.1,
+    'Belarus': 68.2,
+    'Ireland': 498.6,
+    'Greece': 218.1,
+    'Russia': 2240.4
+};
+
+// Attack system configuration
+const ATTACK_TYPES = [
+    { name: 'Weak Attack', cost: 1, baseChance: 0.2, emoji: '🗡️' },
+    { name: 'Medium Attack', cost: 10, baseChance: 0.3, emoji: '⚔️' },
+    { name: 'Heavy Attack', cost: 100, baseChance: 0.5, emoji: '🏹' },
+    { name: 'Massive Attack', cost: 500, baseChance: 0.8, emoji: '💥' }
+];
+
+// Fort system configuration
+const FORT_UPGRADE_COST = 50; // 50B per upgrade
+const MAX_FORT_LEVEL = 100;
+const FORT_DEFENSE_PER_LEVEL = 0.005; // 0.5% reduction per level
+
+// Initialize fort levels based on GDP
+let countryFortLevels = {};
+
 // Game configuration
 const MAX_PLAYERS = 10;
 
@@ -34,6 +96,17 @@ const PLAYER_COLORS = [
     '#1abc9c', '#e67e22', '#34495e', '#e91e63', '#795548'
 ];
 
+// Initialize fort levels based on GDP
+function initializeFortLevels() {
+    Object.keys(gdpData).forEach(countryName => {
+        const gdp = gdpData[countryName];
+        // GDP / 50 = fortification units, then divide by 2 for starting level
+        const fortLevel = Math.floor((gdp / 50) / 2);
+        countryFortLevels[countryName] = Math.max(0, fortLevel);
+    });
+    console.log('Fort levels initialized:', countryFortLevels);
+}
+
 // Initialize the map
 function initMap() {
     // Initialize map centered on Europe
@@ -41,8 +114,8 @@ function initMap() {
         center: [54.5, 15.0],
         zoom: 4,
         maxZoom: 6,
-        minZoom: 3,
-        maxBounds: [[35, -15], [75, 45]], // Restrict to Europe bounds
+        minZoom: 4,  // Increased from 3 to 4 to prevent too much zoom out
+        maxBounds: [[25, -15], [75, 45]], // Extended south from 30 to 25 for even more southern access
         maxBoundsViscosity: 0.8,
         zoomControl: true,
         attributionControl: true
@@ -543,7 +616,9 @@ function startGame() {
     }
     window.powerTimer = setInterval(() => {
         Object.values(gameData.players).forEach(player => {
-            player.power = (player.power || 10) + 1;
+            const oldPower = player.power || 10;
+            player.power = oldPower + 1;
+            console.log(`Player ${player.name} power increased from ${oldPower} to ${player.power}`);
         });
         saveRoomData();
         updatePlayerStatusBar();
@@ -891,7 +966,7 @@ function loadFallbackEuropeData() {
                             }
                             
                             if (gameData.state === 'playing' && currentPlayerId && gameData.players[currentPlayerId]) {
-                                claimProvince(countryName);
+                                loadCountryInfo(countryName);
                                 return;
                             }
                             
@@ -1023,51 +1098,6 @@ function getCountryFlagEmoji(countryName) {
 
 // GDP data for European countries (in billions USD, 2023 estimates)
 function getCountryGDP(countryName) {
-    const gdpData = {
-        'Germany': 4259.9,
-        'United Kingdom': 3131.0,
-        'France': 2937.5,
-        'Italy': 2110.0,
-        'Spain': 1397.5,
-        'Netherlands': 909.9,
-        'Switzerland': 807.7,
-        'Belgium': 529.6,
-        'Austria': 479.8,
-        'Poland': 679.4,
-        'Sweden': 541.2,
-        'Norway': 482.2,
-        'Denmark': 390.7,
-        'Finland': 297.3,
-        'Portugal': 249.9,
-        'Czechia': 290.9,
-        'Czech Republic': 290.9,
-        'Romania': 284.1,
-        'Hungary': 181.8,
-        'Slovakia': 115.5,
-        'Slovenia': 61.7,
-        'Luxembourg': 86.3,
-        'Croatia': 70.0,
-        'Bulgaria': 84.1,
-        'Lithuania': 68.0,
-        'Latvia': 40.9,
-        'Estonia': 38.1,
-        'Cyprus': 28.4,
-        'Malta': 17.3,
-        'Serbia': 63.1,
-        'Bosnia and Herzegovina': 24.5,
-        'North Macedonia': 13.8,
-        'Macedonia': 13.8,
-        'Montenegro': 6.2,
-        'Albania': 18.3,
-        'Moldova': 13.9,
-        'Republic of Moldova': 13.9,
-        'Ukraine': 170.1,
-        'Belarus': 68.2,
-        'Ireland': 498.6,
-        'Greece': 218.1,
-        'Russia': 2240.4
-    };
-    
     const gdp = gdpData[countryName];
     if (!gdp && gdp !== 0) return 'Data not available';
     
@@ -1113,6 +1143,9 @@ function loadCountryInfo(countryName) {
     
     // Show panel
     panel.classList.add('active');
+    
+    // Update status bar when viewing country info
+    updatePlayerStatusBar();
     
     // Show loading state
     panelBody.innerHTML = '<div class="loading">Loading country information...</div>';
@@ -1199,6 +1232,54 @@ function displayCountryInfo(country, displayName) {
     // Get economy information
     const economyValue = getCountryGDP(displayName);
     
+    // Add attack button during gameplay
+    let attackButton = '';
+    if (gameData.state === 'playing' && currentPlayerId && gameData.players[currentPlayerId]) {
+        const player = gameData.players[currentPlayerId];
+        const isOwnedBySelf = gameData.provinces[displayName] === currentPlayerId;
+        
+        if (!isOwnedBySelf) {
+            // Create attack buttons for different attack types
+            const attackButtons = ATTACK_TYPES.map(attackType => {
+                const canAfford = calculatePlayerStats(currentPlayerId).economy >= attackType.cost;
+                const buttonClass = canAfford ? 'attack-btn' : 'attack-btn attack-btn-disabled';
+                
+                return `
+                    <button class="${buttonClass}" onclick="attackCountry('${displayName}', ${ATTACK_TYPES.indexOf(attackType)})" ${canAfford ? '' : 'disabled'}>
+                        ${attackType.emoji} ${attackType.name}<br>
+                        <small>Cost: $${attackType.cost}B | ${(attackType.baseChance * 100)}% base chance</small>
+                    </button>
+                `;
+            }).join('');
+            
+            attackButton = `
+                <div class="country-actions" style="margin-top: 15px;">
+                    <div class="attack-buttons">
+                        ${attackButtons}
+                    </div>
+                </div>
+            `;
+        } else {
+            // Show fort upgrade button for owned countries
+            const currentFortLevel = countryFortLevels[displayName] || 0;
+            const canUpgradeFort = calculatePlayerStats(currentPlayerId).economy >= FORT_UPGRADE_COST && currentFortLevel < MAX_FORT_LEVEL;
+            const fortButtonClass = canUpgradeFort ? 'fort-btn' : 'fort-btn fort-btn-disabled';
+            
+            attackButton = `
+                <div class="country-actions" style="margin-top: 15px;">
+                    <div class="fort-info">
+                        <strong>🏰 Fort Level: ${currentFortLevel}</strong><br>
+                        <small>Defense: -${(currentFortLevel * FORT_DEFENSE_PER_LEVEL * 100).toFixed(1)}% attack chance</small>
+                    </div>
+                    <button class="${fortButtonClass}" onclick="upgradeFort('${displayName}')" ${canUpgradeFort ? '' : 'disabled'}>
+                        🏗️ Upgrade Fort<br>
+                        <small>Cost: $${FORT_UPGRADE_COST}B | Level ${currentFortLevel + 1}</small>
+                    </button>
+                </div>
+            `;
+        }
+    }
+    
     panelBody.innerHTML = `
         <div class="country-info">
             ${country.flags && country.flags.svg ? `<img src="${country.flags.svg}" alt="${country.name.common} flag" class="country-flag">` : ''}
@@ -1212,8 +1293,147 @@ function displayCountryInfo(country, displayName) {
                 
                 ${ownerInfo}
             </div>
+            
+            ${attackButton}
         </div>
     `;
+}
+
+// Attack functionality
+function attackCountry(countryName) {
+    if (!currentPlayerId || gameData.state !== 'playing') {
+        console.log('Cannot attack: not in game or not playing');
+        return;
+    }
+    
+    const player = gameData.players[currentPlayerId];
+    if (!player) {
+        console.log('Cannot attack: player not found');
+        return;
+    }
+    
+    // Check if player has enough political power
+    if (player.power < 10) {
+        alert(`Not enough political power! You need 10 power to attack. You have ${player.power}.`);
+        return;
+    }
+    
+    // Check if country is already owned by this player
+    if (gameData.provinces[countryName] === currentPlayerId) {
+        alert('You already own this country!');
+        return;
+    }
+    
+    // Deduct 10 political power
+    player.power -= 10;
+    
+    // Calculate success chance based on economy ratio (attacker at slight disadvantage)
+    const attackerStats = calculatePlayerStats(currentPlayerId);
+    const attackerEconomy = attackerStats.economy;
+    
+    let defenderEconomy = 0;
+    const defendingPlayer = gameData.provinces[countryName];
+    if (defendingPlayer) {
+        // Country is owned by another player
+        const defenderStats = calculatePlayerStats(defendingPlayer);
+        defenderEconomy = defenderStats.economy;
+    } else {
+        // Unowned country - use base GDP
+        defenderEconomy = gdpData[countryName] || 100;
+    }
+    
+    // Calculate success chance: ratio of economies with attacker disadvantage
+    // Base chance is 0.4 (40%) to give defender advantage
+    // Economy ratio can increase this up to ~0.7 (70%) for much stronger attackers
+    let successChance = 0.4 + (attackerEconomy / (attackerEconomy + defenderEconomy)) * 0.3;
+    successChance = Math.min(0.7, Math.max(0.1, successChance)); // Clamp between 10% and 70%
+    
+    const success = Math.random() < successChance;
+    
+    // Show stylized popup instead of alert
+    showAttackResult(success, countryName, attackerEconomy, defenderEconomy, successChance, defendingPlayer);
+    
+    if (success) {
+        // Remove previous owner if any
+        const previousOwner = gameData.provinces[countryName];
+        if (previousOwner) {
+            console.log(`${countryName} taken from ${gameData.players[previousOwner]?.name || 'unknown player'}`);
+        }
+        
+        // Assign country to attacking player
+        gameData.provinces[countryName] = currentPlayerId;
+        console.log(`${player.name} successfully conquered ${countryName}`);
+    } else {
+        console.log(`${player.name} failed to conquer ${countryName}`);
+    }
+    
+    // Update UI and save state
+    updateGameStateUI();
+    updatePlayerStatusBar();
+    saveRoomData();
+    
+    // Refresh the country info panel to show new owner
+    loadCountryInfo(countryName);
+}
+
+// Show stylized attack result popup
+function showAttackResult(success, countryName, attackerEconomy, defenderEconomy, successChance, defendingPlayer) {
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'attack-popup-overlay';
+    
+    // Create popup
+    const popup = document.createElement('div');
+    popup.className = 'attack-popup';
+    
+    // Get defender name
+    const defenderName = defendingPlayer ? 
+        (gameData.players[defendingPlayer]?.name || 'Unknown Player') : 
+        'Unoccupied Territory';
+    
+    popup.innerHTML = `
+        <div class="attack-popup-icon">${success ? '🎉' : '💥'}</div>
+        <div class="attack-popup-title">${success ? 'Victory!' : 'Defeat!'}</div>
+        <div class="attack-popup-message">
+            ${success ? 
+                `You successfully conquered <strong>${countryName}</strong>!` : 
+                `<strong>${countryName}</strong> defended successfully!`
+            }
+        </div>
+        <div class="attack-popup-stats">
+            <div><strong>Attacker:</strong> $${attackerEconomy.toFixed(1)}B</div>
+            <div><strong>Defender:</strong> ${defenderName} - $${defenderEconomy.toFixed(1)}B</div>
+            <div><strong>Success Chance:</strong> ${(successChance * 100).toFixed(1)}%</div>
+        </div>
+        <button class="attack-popup-close">Continue</button>
+    `;
+    
+    // Add to DOM
+    document.body.appendChild(overlay);
+    document.body.appendChild(popup);
+    
+    // Show with animation
+    setTimeout(() => {
+        overlay.classList.add('show');
+        popup.classList.add('show');
+    }, 10);
+    
+    // Close popup function
+    function closePopup() {
+        overlay.classList.remove('show');
+        popup.classList.remove('show');
+        setTimeout(() => {
+            document.body.removeChild(overlay);
+            document.body.removeChild(popup);
+        }, 300);
+    }
+    
+    // Add event listeners
+    popup.querySelector('.attack-popup-close').addEventListener('click', closePopup);
+    overlay.addEventListener('click', closePopup);
+    
+    // Auto-close after 5 seconds
+    setTimeout(closePopup, 5000);
 }
 
 // Economy Growth Timer
@@ -1225,9 +1445,36 @@ function startEconomyGrowthTimer() {
     
     // Start economy growth timer (+2% every 5 seconds for all players)
     window.economyTimer = setInterval(() => {
-        Object.values(gameData.players).forEach(player => {
-            // Increase stored economy by 2% (this is the growth portion only)
-            player.economy = (player.economy || 0) * 1.02;
+        // First, grow the base GDP of all countries by 2%
+        Object.keys(gdpData).forEach(countryName => {
+            gdpData[countryName] = gdpData[countryName] * 1.02;
+        });
+        
+        // Then update player economies (their stored growth portion)
+        Object.keys(gameData.players).forEach(playerId => {
+            const player = gameData.players[playerId];
+            
+            // Calculate current total economy (base GDP from provinces + stored growth)
+            let currentTotalEconomy = player.economy || 0;
+            
+            // Add base GDP from owned provinces
+            Object.keys(gameData.provinces).forEach(provinceName => {
+                if (gameData.provinces[provinceName] === playerId) {
+                    const gdp = gdpData[provinceName];
+                    if (gdp) {
+                        currentTotalEconomy += gdp;
+                    }
+                }
+            });
+            
+            // Calculate 2% growth on total economy
+            const growthAmount = currentTotalEconomy * 0.02;
+            
+            // Add growth to stored economy (this preserves the base GDP while adding growth)
+            const oldStoredEconomy = player.economy || 0;
+            player.economy = oldStoredEconomy + growthAmount;
+            
+            console.log(`Player ${player.name} economy grew by ${growthAmount.toFixed(1)} (total: ${(currentTotalEconomy + growthAmount).toFixed(1)})`);
         });
         
         if (roomCode) {
@@ -1289,6 +1536,9 @@ function calculatePlayerStats(playerId) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize fort levels
+    initializeFortLevels();
+    
     // Initialize map
     initMap();
     
