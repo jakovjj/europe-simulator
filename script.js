@@ -87,9 +87,9 @@ let gameData = {
     countdown: 5
 };
 
-// Simple signaling server (you can replace with your own)
-const SIGNALING_SERVER = 'wss://signaling-server-example.herokuapp.com';
-let signalingSocket = null;
+// Simple P2P using PeerJS (free P2P service)
+let peer = null;
+let connections = new Map();
 
 // Available colors for players
 const PLAYER_COLORS = [
@@ -147,39 +147,67 @@ function createRoom() {
     isHost = true;
     roomCode = generateRoomCode();
     
-    // Initialize game data
-    gameData = {
-        state: 'waiting',
-        players: {},
-        provinces: {},
-        gameStartTime: null,
-        gameEndTime: null,
-        countdown: 5
-    };
+    // Initialize PeerJS
+    peer = new Peer(roomCode + '_host');
     
-    // Add host to game
-    const usedColors = Object.values(gameData.players).map(p => p.color);
-    const availableColors = PLAYER_COLORS.filter(c => !usedColors.includes(c));
-    const randomColor = availableColors[Math.floor(Math.random() * availableColors.length)] || PLAYER_COLORS[0];
+    peer.on('open', (id) => {
+        console.log('Host peer ready with ID:', id);
+        
+        // Initialize game data
+        gameData = {
+            state: 'waiting',
+            players: {},
+            provinces: {},
+            gameStartTime: null,
+            gameEndTime: null,
+            countdown: 5
+        };
+        
+        // Add host to game
+        const usedColors = Object.values(gameData.players).map(p => p.color);
+        const availableColors = PLAYER_COLORS.filter(c => !usedColors.includes(c));
+        const randomColor = availableColors[Math.floor(Math.random() * availableColors.length)] || PLAYER_COLORS[0];
+        
+        gameData.players[currentPlayerId] = {
+            id: currentPlayerId,
+            name: `Host ${currentPlayerId.slice(-4)}`,
+            color: randomColor,
+            selectedCountry: selectedCountry,
+            isHost: true,
+            isReady: false,
+            power: 10,
+            economy: 0
+        };
+        
+        updateRoomUI();
+        updateGameStateUI();
+        startEconomyGrowthTimer();
+        
+        console.log('Created room:', roomCode);
+    });
     
-    gameData.players[currentPlayerId] = {
-        id: currentPlayerId,
-        name: `Host ${currentPlayerId.slice(-4)}`,
-        color: randomColor,
-        selectedCountry: selectedCountry,
-        isHost: true,
-        isReady: false,
-        power: 10,
-        economy: 0
-    };
-    
-    updateRoomUI();
-    updateGameStateUI();
-    
-    // Start economy growth timer
-    startEconomyGrowthTimer();
-    
-    console.log('Created room:', roomCode);
+    // Handle incoming connections
+    peer.on('connection', (conn) => {
+        console.log('New player connecting:', conn.peer);
+        connections.set(conn.peer, conn);
+        
+        conn.on('open', () => {
+            console.log('Connection established with:', conn.peer);
+            conn.send({ type: 'gameState', data: gameData });
+        });
+        
+        conn.on('data', (data) => {
+            handlePeerMessage(data, conn.peer);
+        });
+        
+        conn.on('close', () => {
+            console.log('Player disconnected:', conn.peer);
+            connections.delete(conn.peer);
+            delete gameData.players[conn.peer];
+            updateRoomUI();
+            broadcastGameState();
+        });
+    });
 }
 
 function joinRoom(code) {
@@ -189,89 +217,135 @@ function joinRoom(code) {
     
     roomCode = code.toUpperCase();
     
-    // Check if room exists and player limit
-    const roomKey = `europe_room_${roomCode}`;
-    const roomData = localStorage.getItem(roomKey);
-    if (roomData) {
-        const room = JSON.parse(roomData);
-        if (Object.keys(room.players).length >= MAX_PLAYERS) {
-            alert(`Room is full! Maximum ${MAX_PLAYERS} players allowed.`);
-            return;
-        }
-    }
+    // Initialize PeerJS for joining
+    peer = new Peer(currentPlayerId);
     
-    isHost = false;
+    peer.on('open', (id) => {
+        console.log('Joining peer ready with ID:', id);
+        
+        // Connect to host
+        const hostId = roomCode + '_host';
+        const conn = peer.connect(hostId);
+        connections.set(hostId, conn);
+        
+        conn.on('open', () => {
+            console.log('Connected to host');
+            isHost = false;
+            
+            // Request to join
+            conn.send({
+                type: 'joinRequest',
+                playerId: currentPlayerId,
+                playerData: {
+                    id: currentPlayerId,
+                    name: `Player ${currentPlayerId.slice(-4)}`,
+                    selectedCountry: selectedCountry,
+                    isHost: false,
+                    isReady: false,
+                    power: 10,
+                    economy: 0
+                }
+            });
+        });
+        
+        conn.on('data', (data) => {
+            handlePeerMessage(data, hostId);
+        });
+        
+        conn.on('close', () => {
+            console.log('Disconnected from host');
+            exitRoom();
+        });
+        
+        conn.on('error', (err) => {
+            console.error('Connection error:', err);
+            alert('Failed to connect to room. Room may not exist.');
+            exitRoom();
+        });
+    });
     
-    // For simplicity, we'll use localStorage as a basic signaling mechanism
-    // In a real implementation, you'd use a proper signaling server
-    initSimpleP2P();
-    
-    console.log('Joining room:', roomCode);
+    peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        alert('Failed to join room. Please try again.');
+    });
 }
 
-// Simplified P2P using localStorage for demo (works only on same computer/browser)
-// In production, you'd use WebRTC with a proper signaling server
-function initSimpleP2P() {
-    const roomKey = `europe_room_${roomCode}`;
-    
-    // Listen for room updates
-    const checkRoom = () => {
-        const roomData = localStorage.getItem(roomKey);
-        if (roomData) {
-            try {
-                const room = JSON.parse(roomData);
-                if (room.gameData) {
-                    // Join the existing game
-                    gameData = room.gameData;
-                    
-                    // Ensure all existing players have power and economy (for backward compatibility)
-                    Object.values(gameData.players).forEach(player => {
-                        if (player.power === undefined) {
-                            player.power = 10;
-                        }
-                        if (player.economy === undefined) {
-                            player.economy = 0;
-                        }
-                    });
-                    
-                    // Add ourselves if not already in
-                    if (!gameData.players[currentPlayerId]) {
-                        const usedColors = Object.values(gameData.players).map(p => p.color);
-                        const availableColors = PLAYER_COLORS.filter(c => !usedColors.includes(c));
-                        const randomColor = availableColors[Math.floor(Math.random() * availableColors.length)] || PLAYER_COLORS[0];
-                        
-                        gameData.players[currentPlayerId] = {
-                            id: currentPlayerId,
-                            name: `Player ${currentPlayerId.slice(-4)}`,
-                            color: randomColor,
-                            selectedCountry: selectedCountry,
-                            isHost: false,
-                            isReady: false,
-                            power: 10,
-                            economy: 0
-                        };
-                        
-                        // Update the room
-                        saveRoomData();
-                    }
-                    
-                    updateGameStateUI();
-                    
-                    // Start economy growth timer
-                    startEconomyGrowthTimer();
-                }
-            } catch (error) {
-                console.error('Error parsing room data:', error);
+// Handle messages from peers
+function handlePeerMessage(data, peerId) {
+    switch (data.type) {
+        case 'gameState':
+            gameData = data.data;
+            updateRoomUI();
+            updateGameStateUI();
+            break;
+        case 'joinRequest':
+            if (isHost) {
+                // Add new player to game
+                const usedColors = Object.values(gameData.players).map(p => p.color);
+                const availableColors = PLAYER_COLORS.filter(c => !usedColors.includes(c));
+                const randomColor = availableColors[Math.floor(Math.random() * availableColors.length)] || PLAYER_COLORS[0];
+                
+                data.playerData.color = randomColor;
+                gameData.players[data.playerId] = data.playerData;
+                
+                updateRoomUI();
+                broadcastGameState();
             }
-        }
-    };
-    
-    // Check immediately and then periodically
-    checkRoom();
-    setInterval(checkRoom, 1000);
-    
-    // Listen for storage changes (real-time sync)
-    window.addEventListener('storage', (e) => {
+            break;
+        case 'playerUpdate':
+            if (gameData.players[data.playerId]) {
+                Object.assign(gameData.players[data.playerId], data.updates);
+                updateRoomUI();
+                if (isHost) broadcastGameState();
+            }
+            break;
+        case 'gameAction':
+            // Handle game actions like attacks, fort upgrades, etc.
+            handleGameAction(data);
+            break;
+    }
+}
+
+// Broadcast game state to all connected peers
+function broadcastGameState() {
+    if (isHost) {
+        connections.forEach((conn) => {
+            if (conn.open) {
+                conn.send({ type: 'gameState', data: gameData });
+            }
+        });
+    }
+}
+
+// Handle game actions
+function handleGameAction(data) {
+    switch (data.action) {
+        case 'attack':
+            // Process attack and broadcast result
+            break;
+        case 'upgradeFort':
+            // Process fort upgrade
+            break;
+        case 'ready':
+            if (gameData.players[data.playerId]) {
+                gameData.players[data.playerId].isReady = data.isReady;
+                updateRoomUI();
+                if (isHost) broadcastGameState();
+            }
+            break;
+    }
+}
+
+// Simple P2P room management
+function saveRoomData() {
+    // In PeerJS implementation, game state is synchronized automatically
+    // This function exists for compatibility but doesn't use localStorage
+    if (isHost) {
+        broadcastGameState();
+    }
+}
+
+// Room utility functions
         if (e.key === roomKey && e.newValue) {
             try {
                 const room = JSON.parse(e.newValue);
@@ -1243,15 +1317,23 @@ function displayCountryInfo(country, displayName) {
         const isOwnedBySelf = gameData.provinces[displayName] === currentPlayerId;
         
         if (!isOwnedBySelf) {
+            // Get fort level for success chance calculations
+            const fortLevel = countryFortLevels[displayName] || 0;
+            const fortDefense = fortLevel * FORT_DEFENSE_PER_LEVEL;
+            
             // Create attack buttons for different attack types
             const attackButtons = ATTACK_TYPES.map(attackType => {
                 const canAfford = calculatePlayerStats(currentPlayerId).economy >= attackType.cost;
                 const buttonClass = canAfford ? 'attack-btn' : 'attack-btn attack-btn-disabled';
                 
+                // Calculate final success chance after fort defense
+                const baseChance = attackType.baseChance;
+                const finalChance = Math.max(0.05, baseChance - fortDefense);
+                
                 return `
                     <button class="${buttonClass}" onclick="attackCountry('${displayName}', ${ATTACK_TYPES.indexOf(attackType)})" ${canAfford ? '' : 'disabled'}>
                         ${attackType.emoji} ${attackType.name}<br>
-                        <small>Cost: $${attackType.cost}B | ${(attackType.baseChance * 100)}% base chance</small>
+                        <small>Cost: $${attackType.cost}B | ${(finalChance * 100).toFixed(0)}% chance (${(baseChance * 100)}% base)</small>
                     </button>
                 `;
             }).join('');
