@@ -398,6 +398,13 @@ html, body {
     flex: 1;
 }
 
+.detail-sub {
+    font-size: 12px;
+    color: #7f8c8d;
+    font-style: italic;
+    margin-left: 8px;
+}
+
 .player-owner {
     background: #f8f9fa;
     border-left-color: #e74c3c;

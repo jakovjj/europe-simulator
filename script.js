@@ -3,6 +3,7 @@ let map;
 let europeLayer;
 let currentPlayerId = null;
 let selectedCountry = null;
+let currentlyDisplayedCountry = null; // Track which country info is currently shown
 let gameState = 'loading';
 let isLoading = true;
 
@@ -54,8 +55,8 @@ const gdpData = {
 
 // Attack system configuration
 const ATTACK_TYPES = [
-    { name: 'Weak Attack', cost: 1, baseChance: 0.2, emoji: '🗡️' },
-    { name: 'Medium Attack', cost: 10, baseChance: 0.3, emoji: '⚔️' },
+    { name: 'Weak Attack', cost: 5, baseChance: 0.2, emoji: '🗡️' },
+    { name: 'Medium Attack', cost: 20, baseChance: 0.3, emoji: '⚔️' },
     { name: 'Heavy Attack', cost: 100, baseChance: 0.5, emoji: '🏹' },
     { name: 'Massive Attack', cost: 500, baseChance: 0.8, emoji: '💥' }
 ];
@@ -1141,6 +1142,9 @@ function loadCountryInfo(countryName) {
     const panel = document.getElementById('country-info-panel');
     const panelBody = document.getElementById('panel-body');
     
+    // Track currently displayed country
+    currentlyDisplayedCountry = countryName;
+    
     // Show panel
     panel.classList.add('active');
     
@@ -1291,6 +1295,12 @@ function displayCountryInfo(country, displayName) {
                     <span class="detail-value">${economyValue}</span>
                 </div>
                 
+                <div class="detail-item">
+                    <span class="detail-label" data-icon="fort">🏰 Fort Level:</span>
+                    <span class="detail-value">${countryFortLevels[displayName] || 0}</span>
+                    <span class="detail-sub">(-${((countryFortLevels[displayName] || 0) * FORT_DEFENSE_PER_LEVEL * 100).toFixed(1)}% attack chance)</span>
+                </div>
+                
                 ${ownerInfo}
             </div>
             
@@ -1300,7 +1310,7 @@ function displayCountryInfo(country, displayName) {
 }
 
 // Attack functionality
-function attackCountry(countryName) {
+function attackCountry(countryName, attackTypeIndex = 1) {
     if (!currentPlayerId || gameData.state !== 'playing') {
         console.log('Cannot attack: not in game or not playing');
         return;
@@ -1312,9 +1322,12 @@ function attackCountry(countryName) {
         return;
     }
     
-    // Check if player has enough political power
-    if (player.power < 10) {
-        alert(`Not enough political power! You need 10 power to attack. You have ${player.power}.`);
+    const attackType = ATTACK_TYPES[attackTypeIndex];
+    const attackerStats = calculatePlayerStats(currentPlayerId);
+    
+    // Check if player has enough economy
+    if (attackerStats.economy < attackType.cost) {
+        alert(`Not enough economy! You need $${attackType.cost}B to use ${attackType.name}. You have $${attackerStats.economy.toFixed(1)}B.`);
         return;
     }
     
@@ -1324,34 +1337,30 @@ function attackCountry(countryName) {
         return;
     }
     
-    // Deduct 10 political power
-    player.power -= 10;
+    // Deduct attack cost from stored economy
+    const costInStoredEconomy = attackType.cost;
+    player.economy = (player.economy || 0) - costInStoredEconomy;
     
-    // Calculate success chance based on economy ratio (attacker at slight disadvantage)
-    const attackerStats = calculatePlayerStats(currentPlayerId);
-    const attackerEconomy = attackerStats.economy;
+    // Calculate success chance
+    const baseChance = attackType.baseChance;
+    const fortLevel = countryFortLevels[countryName] || 0;
+    const fortDefense = fortLevel * FORT_DEFENSE_PER_LEVEL;
+    const finalChance = Math.max(0.05, baseChance - fortDefense); // Minimum 5% chance
     
-    let defenderEconomy = 0;
+    const success = Math.random() < finalChance;
+    
+    // Get defender info
     const defendingPlayer = gameData.provinces[countryName];
+    let defenderEconomy = 0;
     if (defendingPlayer) {
-        // Country is owned by another player
         const defenderStats = calculatePlayerStats(defendingPlayer);
         defenderEconomy = defenderStats.economy;
     } else {
-        // Unowned country - use base GDP
         defenderEconomy = gdpData[countryName] || 100;
     }
     
-    // Calculate success chance: ratio of economies with attacker disadvantage
-    // Base chance is 0.4 (40%) to give defender advantage
-    // Economy ratio can increase this up to ~0.7 (70%) for much stronger attackers
-    let successChance = 0.4 + (attackerEconomy / (attackerEconomy + defenderEconomy)) * 0.3;
-    successChance = Math.min(0.7, Math.max(0.1, successChance)); // Clamp between 10% and 70%
-    
-    const success = Math.random() < successChance;
-    
-    // Show stylized popup instead of alert
-    showAttackResult(success, countryName, attackerEconomy, defenderEconomy, successChance, defendingPlayer);
+    // Show stylized popup
+    showAttackResult(success, countryName, attackerStats.economy, defenderEconomy, baseChance, finalChance, defendingPlayer, attackType, fortLevel);
     
     if (success) {
         // Remove previous owner if any
@@ -1376,8 +1385,50 @@ function attackCountry(countryName) {
     loadCountryInfo(countryName);
 }
 
+// Upgrade fort level for a country
+function upgradeFort(countryName) {
+    if (!currentPlayerId || gameData.state !== 'playing') {
+        return;
+    }
+    
+    const player = gameData.players[currentPlayerId];
+    if (!player) return;
+    
+    // Check if player owns this country
+    if (gameData.provinces[countryName] !== currentPlayerId) {
+        alert('You can only upgrade forts in countries you own!');
+        return;
+    }
+    
+    const currentFortLevel = countryFortLevels[countryName] || 0;
+    const attackerStats = calculatePlayerStats(currentPlayerId);
+    
+    // Check if fort is at max level
+    if (currentFortLevel >= MAX_FORT_LEVEL) {
+        alert('Fort is already at maximum level!');
+        return;
+    }
+    
+    // Check if player has enough economy
+    if (attackerStats.economy < FORT_UPGRADE_COST) {
+        alert(`Not enough economy! You need $${FORT_UPGRADE_COST}B to upgrade fort. You have $${attackerStats.economy.toFixed(1)}B.`);
+        return;
+    }
+    
+    // Deduct cost and upgrade fort
+    player.economy = (player.economy || 0) - FORT_UPGRADE_COST;
+    countryFortLevels[countryName] = currentFortLevel + 1;
+    
+    // Update UI
+    updatePlayerStatusBar();
+    saveRoomData();
+    loadCountryInfo(countryName);
+    
+    console.log(`${player.name} upgraded fort in ${countryName} to level ${countryFortLevels[countryName]}`);
+}
+
 // Show stylized attack result popup
-function showAttackResult(success, countryName, attackerEconomy, defenderEconomy, successChance, defendingPlayer) {
+function showAttackResult(success, countryName, attackerEconomy, defenderEconomy, baseChance, finalChance, defendingPlayer, attackType, fortLevel) {
     // Create overlay
     const overlay = document.createElement('div');
     overlay.className = 'attack-popup-overlay';
@@ -1391,19 +1442,23 @@ function showAttackResult(success, countryName, attackerEconomy, defenderEconomy
         (gameData.players[defendingPlayer]?.name || 'Unknown Player') : 
         'Unoccupied Territory';
     
+    const fortDefense = fortLevel * FORT_DEFENSE_PER_LEVEL * 100;
+    
     popup.innerHTML = `
         <div class="attack-popup-icon">${success ? '🎉' : '💥'}</div>
         <div class="attack-popup-title">${success ? 'Victory!' : 'Defeat!'}</div>
         <div class="attack-popup-message">
             ${success ? 
-                `You successfully conquered <strong>${countryName}</strong>!` : 
-                `<strong>${countryName}</strong> defended successfully!`
+                `You successfully conquered <strong>${countryName}</strong> using ${attackType.name}!` : 
+                `<strong>${countryName}</strong> defended against your ${attackType.name}!`
             }
         </div>
         <div class="attack-popup-stats">
-            <div><strong>Attacker:</strong> $${attackerEconomy.toFixed(1)}B</div>
+            <div><strong>Attack Type:</strong> ${attackType.emoji} ${attackType.name} (Cost: $${attackType.cost}B)</div>
+            <div><strong>Base Success:</strong> ${(baseChance * 100).toFixed(1)}%</div>
+            <div><strong>Fort Defense:</strong> 🏰 Level ${fortLevel} (-${fortDefense.toFixed(1)}%)</div>
+            <div><strong>Final Chance:</strong> ${(finalChance * 100).toFixed(1)}%</div>
             <div><strong>Defender:</strong> ${defenderName} - $${defenderEconomy.toFixed(1)}B</div>
-            <div><strong>Success Chance:</strong> ${(successChance * 100).toFixed(1)}%</div>
         </div>
         <button class="attack-popup-close">Continue</button>
     `;
@@ -1481,6 +1536,11 @@ function startEconomyGrowthTimer() {
             saveRoomData();
         }
         updatePlayerStatusBar();
+        
+        // Refresh country info panel if one is currently displayed
+        if (currentlyDisplayedCountry) {
+            loadCountryInfo(currentlyDisplayedCountry);
+        }
     }, 5000);
 }
 
@@ -1556,6 +1616,7 @@ function setupEventListeners() {
         closeBtn.addEventListener('click', function() {
             const panel = document.getElementById('country-info-panel');
             panel.classList.remove('active');
+            currentlyDisplayedCountry = null; // Clear tracked country when panel closes
         });
     }
     
