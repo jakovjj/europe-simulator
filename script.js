@@ -149,12 +149,6 @@ function generatePlayerId() {
 
 // Quick Play Mode (Single Player)
 function quickPlay() {
-    // Require country selection before starting quick play
-    if (!selectedCountry) {
-        alert('You must select a country first! Click on a country on the map to select it.');
-        return;
-    }
-    
     if (!currentPlayerId) {
         currentPlayerId = generatePlayerId();
     }
@@ -177,7 +171,7 @@ function quickPlay() {
         id: currentPlayerId,
         name: `Player ${currentPlayerId.slice(-4)}`,
         color: PLAYER_COLORS[0],
-        selectedCountry: selectedCountry,
+        selectedCountry: selectedCountry, // Can be null initially
         isHost: true,
         isReady: true, // Auto-ready for solo play
         power: 10,
@@ -204,12 +198,6 @@ function quickPlay() {
     console.log('Started solo play mode');
 }
 function createRoom() {
-    // Require country selection before creating room
-    if (!selectedCountry) {
-        alert('You must select a country first! Click on a country on the map to select it.');
-        return;
-    }
-    
     if (!currentPlayerId) {
         currentPlayerId = generatePlayerId();
     }
@@ -236,7 +224,7 @@ function createRoom() {
         id: currentPlayerId,
         name: `Host ${currentPlayerId.slice(-4)}`,
         color: randomColor,
-        selectedCountry: selectedCountry,
+        selectedCountry: selectedCountry, // Can be null initially
         isHost: true,
         isReady: false,
         power: 10,
@@ -265,12 +253,6 @@ function createRoom() {
 }
 
 function joinRoom(code) {
-    // Require country selection before joining room
-    if (!selectedCountry) {
-        alert('You must select a country first! Click on a country on the map to select it.');
-        return;
-    }
-    
     if (!currentPlayerId) {
         currentPlayerId = generatePlayerId();
     }
@@ -300,7 +282,7 @@ function joinRoom(code) {
         id: currentPlayerId,
         name: `Player ${currentPlayerId.slice(-4)}`,
         color: randomColor,
-        selectedCountry: selectedCountry,
+        selectedCountry: selectedCountry, // Can be null initially
         isHost: false,
         isReady: false,
         power: 10,
@@ -326,6 +308,18 @@ function joinRoom(code) {
 function connectToSignalingServer(onConnected) {
     if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
         if (onConnected) onConnected();
+        return;
+    }
+    
+    // Check if we're running locally or on GitHub Pages (no WebSocket server available)
+    const isLocalOrGitHubPages = window.location.hostname === 'localhost' || 
+                                 window.location.hostname === '127.0.0.1' || 
+                                 window.location.hostname.includes('github.io') ||
+                                 window.location.protocol === 'file:';
+    
+    if (isLocalOrGitHubPages) {
+        console.log('Running locally or on GitHub Pages, using fallback P2P mode directly');
+        activateFallbackMode(onConnected);
         return;
     }
     
@@ -1558,8 +1552,9 @@ function loadFallbackEuropeData() {
                                 return;
                             }
                             
-                            const countryName = feature.properties.NAME || feature.properties.ADMIN || feature.properties.name || feature.properties.NAME_EN;
-                            console.log('Clicked country:', countryName, 'Game state:', gameData.state);
+                            const rawCountryName = feature.properties.NAME || feature.properties.ADMIN || feature.properties.name || feature.properties.NAME_EN;
+                            const countryName = normalizeDisplayName(rawCountryName); // Normalize the country name
+                            console.log('Clicked country:', rawCountryName, '->', countryName, 'Game state:', gameData.state);
                             
                             if (gameData.state === 'waiting' && (!currentPlayerId || !gameData.players[currentPlayerId])) {
                                 selectCountry(countryName);
