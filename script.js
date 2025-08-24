@@ -149,6 +149,12 @@ function generatePlayerId() {
 
 // Quick Play Mode (Single Player)
 function quickPlay() {
+    // Require country selection before starting quick play
+    if (!selectedCountry) {
+        alert('You must select a country first! Click on a country on the map to select it.');
+        return;
+    }
+    
     if (!currentPlayerId) {
         currentPlayerId = generatePlayerId();
     }
@@ -198,6 +204,12 @@ function quickPlay() {
     console.log('Started solo play mode');
 }
 function createRoom() {
+    // Require country selection before creating room
+    if (!selectedCountry) {
+        alert('You must select a country first! Click on a country on the map to select it.');
+        return;
+    }
+    
     if (!currentPlayerId) {
         currentPlayerId = generatePlayerId();
     }
@@ -253,6 +265,12 @@ function createRoom() {
 }
 
 function joinRoom(code) {
+    // Require country selection before joining room
+    if (!selectedCountry) {
+        alert('You must select a country first! Click on a country on the map to select it.');
+        return;
+    }
+    
     if (!currentPlayerId) {
         currentPlayerId = generatePlayerId();
     }
@@ -762,9 +780,9 @@ function processAttackAction(payload) {
     updateGameStateUI();
     updateProvinceDisplay();
     
-    // Refresh country info if it's currently displayed
+    // Update country info dynamically if it's currently displayed
     if (currentlyDisplayedCountry === countryName) {
-        loadCountryInfo(countryName);
+        updateCountryInfoDynamic(countryName);
     }
 }
 
@@ -786,9 +804,9 @@ function processFortUpgradeAction(payload) {
         updatePlayerStatusBar();
     }
     
-    // Refresh country info if it's currently displayed
+    // Update country info dynamically if it's currently displayed
     if (currentlyDisplayedCountry === countryName) {
-        loadCountryInfo(countryName);
+        updateCountryInfoDynamic(countryName);
     }
 }
 
@@ -1105,7 +1123,8 @@ function updateProvinceDisplay() {
     europeLayer.eachLayer((layer) => {
         const feature = layer.feature;
         if (feature && feature.properties) {
-            const countryName = feature.properties.NAME || feature.properties.ADMIN || feature.properties.name || feature.properties.NAME_EN;
+            const rawCountryName = feature.properties.NAME || feature.properties.ADMIN || feature.properties.name || feature.properties.NAME_EN;
+            const countryName = normalizeDisplayName(rawCountryName); // Normalize the country name
             
             // Check if owned (during game)
             if (gameData.provinces[countryName]) {
@@ -1194,10 +1213,15 @@ function startGame() {
     // Start economy growth timer (runs all the time for all players)
     startEconomyGrowthTimer();
     
-    // Auto-assign selected countries as starting provinces
+    // Auto-assign selected countries as starting provinces and set initial player economies
     Object.values(gameData.players).forEach(player => {
         if (player.selectedCountry) {
             gameData.provinces[player.selectedCountry] = player.id;
+            
+            // Initialize player economy to 50% of their selected country's GDP
+            const countryGDP = gdpData[player.selectedCountry] || 100;
+            player.economy = countryGDP * 0.5;
+            console.log(`Player ${player.name} starts with $${player.economy.toFixed(1)}B (50% of ${player.selectedCountry}'s $${countryGDP.toFixed(1)}B GDP)`);
         }
     });
     
@@ -1438,8 +1462,9 @@ function loadEuropeData() {
                                 return; // Don't allow click if cursor is outside visible bounds
                             }
                             
-                            const countryName = feature.properties.NAME || feature.properties.ADMIN || feature.properties.name || feature.properties.NAME_EN;
-                            console.log('Clicked country:', countryName, 'Game state:', gameData.state);
+                            const rawCountryName = feature.properties.NAME || feature.properties.ADMIN || feature.properties.name || feature.properties.NAME_EN;
+                            const countryName = normalizeDisplayName(rawCountryName); // Normalize the country name
+                            console.log('Clicked country:', rawCountryName, '->', countryName, 'Game state:', gameData.state);
                             
                             // Handle country selection during waiting phase
                             if (gameData.state === 'waiting' && (!currentPlayerId || !gameData.players[currentPlayerId])) {
@@ -1897,6 +1922,99 @@ function displayCountryInfo(country, displayName) {
     `;
 }
 
+// Update only the dynamic parts of country info without reloading
+function updateCountryInfoDynamic(countryName) {
+    const panel = document.getElementById('country-info-panel');
+    const panelBody = document.getElementById('panel-body');
+    
+    // Only update if the panel is active and showing the same country
+    if (!panel.classList.contains('active') || currentlyDisplayedCountry !== countryName) {
+        return;
+    }
+    
+    // Find and update dynamic elements
+    const countryInfo = panelBody.querySelector('.country-info');
+    if (!countryInfo) return;
+    
+    // Update owner information
+    const ownerElement = countryInfo.querySelector('.player-owner');
+    if (gameData.state === 'playing' && gameData.provinces[countryName]) {
+        const ownerId = gameData.provinces[countryName];
+        const owner = gameData.players[ownerId];
+        if (owner) {
+            if (ownerElement) {
+                ownerElement.querySelector('.detail-value').textContent = owner.name;
+                ownerElement.querySelector('.detail-value').style.color = owner.color;
+            } else {
+                // Add owner info if it doesn't exist
+                const ownerDiv = document.createElement('div');
+                ownerDiv.className = 'detail-item player-owner';
+                ownerDiv.innerHTML = `
+                    <span class="detail-label" data-icon="owner">Owned by:</span>
+                    <span class="detail-value" style="color: ${owner.color}">${owner.name}</span>
+                `;
+                countryInfo.querySelector('.country-details').appendChild(ownerDiv);
+            }
+        }
+    } else if (ownerElement) {
+        // Remove owner info if no longer owned
+        ownerElement.remove();
+    }
+    
+    // Update attack buttons and fort info
+    const actionsDiv = countryInfo.querySelector('.country-actions');
+    if (gameData.state === 'playing' && currentPlayerId && gameData.players[currentPlayerId]) {
+        const isOwnedBySelf = gameData.provinces[countryName] === currentPlayerId;
+        
+        if (!isOwnedBySelf) {
+            // Update attack buttons
+            const attackButtons = ATTACK_TYPES.map(attackType => {
+                const canAfford = calculatePlayerStats(currentPlayerId).economy >= attackType.cost;
+                const buttonClass = canAfford ? 'attack-btn' : 'attack-btn attack-btn-disabled';
+                
+                return `
+                    <button class="${buttonClass}" onclick="attackCountry('${countryName}', ${ATTACK_TYPES.indexOf(attackType)})" ${canAfford ? '' : 'disabled'}>
+                        ${attackType.emoji} ${attackType.name}<br>
+                        <small>Cost: $${attackType.cost}B | ${(attackType.baseChance * 100)}% base chance</small>
+                    </button>
+                `;
+            }).join('');
+            
+            if (actionsDiv) {
+                actionsDiv.innerHTML = `<div class="attack-buttons">${attackButtons}</div>`;
+            }
+        } else {
+            // Update fort upgrade button
+            const currentFortLevel = countryFortLevels[countryName] || 0;
+            const canUpgradeFort = calculatePlayerStats(currentPlayerId).economy >= FORT_UPGRADE_COST && currentFortLevel < MAX_FORT_LEVEL;
+            const fortButtonClass = canUpgradeFort ? 'fort-btn' : 'fort-btn fort-btn-disabled';
+            
+            if (actionsDiv) {
+                actionsDiv.innerHTML = `
+                    <div class="fort-info">
+                        <strong>🏰 Fort Level: ${currentFortLevel}</strong><br>
+                        <small>Defense: -${(currentFortLevel * FORT_DEFENSE_PER_LEVEL * 100).toFixed(1)}% attack chance</small>
+                    </div>
+                    <button class="${fortButtonClass}" onclick="upgradeFort('${countryName}')" ${canUpgradeFort ? '' : 'disabled'}>
+                        🏗️ Upgrade Fort<br>
+                        <small>Cost: $${FORT_UPGRADE_COST}B | Level ${currentFortLevel + 1}</small>
+                    </button>
+                `;
+            }
+            
+            // Also update fort level in the details section
+            const fortLevelElement = countryInfo.querySelector('.detail-item:nth-child(2) .detail-value');
+            const fortDefenseElement = countryInfo.querySelector('.detail-item:nth-child(2) .detail-sub');
+            if (fortLevelElement) {
+                fortLevelElement.textContent = currentFortLevel;
+            }
+            if (fortDefenseElement) {
+                fortDefenseElement.textContent = `(-${(currentFortLevel * FORT_DEFENSE_PER_LEVEL * 100).toFixed(1)}% attack chance)`;
+            }
+        }
+    }
+}
+
 // Attack functionality
 function attackCountry(countryName, attackTypeIndex = 1) {
     if (!currentPlayerId || gameData.state !== 'playing') {
@@ -1978,8 +2096,8 @@ function attackCountry(countryName, attackTypeIndex = 1) {
     updatePlayerStatusBar();
     saveRoomData();
     
-    // Refresh the country info panel to show new owner
-    loadCountryInfo(countryName);
+    // Update the country info panel dynamically to show new owner
+    updateCountryInfoDynamic(countryName);
 }
 
 // Upgrade fort level for a country
@@ -2027,7 +2145,7 @@ function upgradeFort(countryName) {
     // Update UI
     updatePlayerStatusBar();
     saveRoomData();
-    loadCountryInfo(countryName);
+    updateCountryInfoDynamic(countryName);
     
     console.log(`${player.name} upgraded fort in ${countryName} to level ${countryFortLevels[countryName]}`);
 }
@@ -2103,38 +2221,33 @@ function startEconomyGrowthTimer() {
         clearInterval(window.economyTimer);
     }
     
-    // Start economy growth timer (+2% every 5 seconds for all players)
+    // Start economy growth timer (players gain 2% of total provinces GDP every 5 seconds)
     window.economyTimer = setInterval(() => {
-        // First, grow the base GDP of all countries by 2%
-        Object.keys(gdpData).forEach(countryName => {
-            gdpData[countryName] = gdpData[countryName] * 1.02;
-        });
-        
-        // Then update player economies (their stored growth portion)
+        // Update player economies (gain 2% of total owned provinces GDP)
         Object.keys(gameData.players).forEach(playerId => {
             const player = gameData.players[playerId];
             
-            // Calculate current total economy (base GDP from provinces + stored growth)
-            let currentTotalEconomy = player.economy || 0;
-            
-            // Add base GDP from owned provinces
+            // Calculate total GDP from owned provinces
+            let totalProvincesGDP = 0;
             Object.keys(gameData.provinces).forEach(provinceName => {
                 if (gameData.provinces[provinceName] === playerId) {
                     const gdp = gdpData[provinceName];
                     if (gdp) {
-                        currentTotalEconomy += gdp;
+                        totalProvincesGDP += gdp;
                     }
                 }
             });
             
-            // Calculate 2% growth on total economy
-            const growthAmount = currentTotalEconomy * 0.02;
+            // Calculate 2% growth on total provinces GDP
+            const growthAmount = totalProvincesGDP * 0.02;
             
-            // Add growth to stored economy (this preserves the base GDP while adding growth)
+            // Add growth to player's stored economy
             const oldStoredEconomy = player.economy || 0;
             player.economy = oldStoredEconomy + growthAmount;
             
-            console.log(`Player ${player.name} economy grew by ${growthAmount.toFixed(1)} (total: ${(currentTotalEconomy + growthAmount).toFixed(1)})`);
+            if (growthAmount > 0) {
+                console.log(`Player ${player.name} gained $${growthAmount.toFixed(1)}B from provinces (total stored: $${player.economy.toFixed(1)}B)`);
+            }
         });
         
         if (roomCode) {
@@ -2142,9 +2255,9 @@ function startEconomyGrowthTimer() {
         }
         updatePlayerStatusBar();
         
-        // Refresh country info panel if one is currently displayed
+        // Update country info panel dynamically if one is currently displayed
         if (currentlyDisplayedCountry) {
-            loadCountryInfo(currentlyDisplayedCountry);
+            updateCountryInfoDynamic(currentlyDisplayedCountry);
         }
     }, 5000);
 }
@@ -2180,21 +2293,12 @@ function calculatePlayerStats(playerId) {
         player.economy = 0;
     }
     
-    // Calculate total economy: base GDP from provinces + growth
-    let totalEconomy = player ? (player.economy || 0) : 0;
-    
-    // Add base GDP from owned provinces
-    Object.keys(gameData.provinces).forEach(provinceName => {
-        if (gameData.provinces[provinceName] === playerId) {
-            const gdp = gdpData[provinceName];
-            if (gdp) {
-                totalEconomy += gdp;
-            }
-        }
-    });
+    // Player's economy is now completely separate from country GDP
+    // It's their stored wealth that grows based on provinces they own
+    const playerEconomy = player ? (player.economy || 0) : 0;
     
     return {
-        economy: totalEconomy,
+        economy: playerEconomy,
         power: player ? (player.power || 10) : 10
     };
 }
