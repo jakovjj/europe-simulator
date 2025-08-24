@@ -16,6 +16,10 @@
     <div id="game-interface">
         <div id="game-status" class="game-status">
             <div id="player-count">No room joined</div>
+            <div id="connection-status" class="connection-status">
+                <span id="connection-indicator" class="connection-indicator disconnected">●</span>
+                <span id="connection-text">Offline</span>
+            </div>
             <div id="game-timer" class="hidden">Game Time: 10:00</div>
             <div id="countdown" class="hidden">Game starts in: 5</div>
         </div>
@@ -31,7 +35,14 @@
         <div id="room-controls" class="room-controls">
             <div id="room-display"></div>
             
+            <div class="play-mode-info">
+                <p><strong>🚀 Quick Play:</strong> Start playing immediately (solo)</p>
+                <p><strong>🏠 Create Room:</strong> Play with friends (share room code)</p>
+                <p><strong>🌐 Join Room:</strong> Enter a friend's room code</p>
+            </div>
+            
             <div class="room-actions">
+                <button id="quick-play-btn" class="room-btn quick-play-btn">🚀 Quick Play (Solo)</button>
                 <button id="create-room-btn" class="room-btn create-btn">Create Room</button>
                 
                 <div class="join-room-section">
@@ -83,6 +94,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin=""></script>
+    <script src="fallback.js"></script>
     <script src="script.js"></script>
+    <script src="dev-utils.js"></script>
 </body>
 </html>

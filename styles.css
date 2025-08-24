@@ -54,6 +54,43 @@ html, body {
     margin-bottom: 5px;
 }
 
+.connection-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 12px;
+    margin-bottom: 5px;
+}
+
+.connection-indicator {
+    font-size: 14px;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.connection-indicator.connected {
+    color: #27ae60;
+}
+
+.connection-indicator.connecting {
+    color: #f39c12;
+}
+
+.connection-indicator.disconnected {
+    color: #e74c3c;
+}
+
+#connection-text {
+    font-size: 12px;
+    font-weight: 500;
+    color: #7f8c8d;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
 #game-timer {
     font-size: 18px;
     font-weight: bold;
@@ -136,6 +173,24 @@ html, body {
     text-align: center;
 }
 
+.play-mode-info {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    text-align: left;
+}
+
+.play-mode-info p {
+    margin: 5px 0;
+    font-size: 13px;
+    color: #2c3e50;
+}
+
+.play-mode-info strong {
+    color: #e67e22;
+}
+
 .room-actions {
     display: flex;
     flex-direction: column;
@@ -159,6 +214,16 @@ html, body {
 
 .create-btn:hover {
     background: #2980b9;
+}
+
+.quick-play-btn {
+    background: linear-gradient(135deg, #27ae60, #2ecc71);
+    color: white;
+    margin-bottom: 10px;
+}
+
+.quick-play-btn:hover {
+    background: linear-gradient(135deg, #229954, #27ae60);
 }
 
 .join-room-section {

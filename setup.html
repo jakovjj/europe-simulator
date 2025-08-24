@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup - Europe Simulator P2P</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            background: white;
+            color: #333;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            border-left: 5px solid #3498db;
+        }
+        .step h3 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        .code {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+        .btn {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        .btn:hover {
+            background: #2980b9;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .feature {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .feature h4 {
+            color: #27ae60;
+            margin-bottom: 10px;
+        }
+        .warning {
+            background: #ffeaa7;
+            border: 1px solid #fdcb6e;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌍 Europe Simulator - P2P Multiplayer Setup</h1>
+        
+        <p>Welcome! I've implemented full peer-to-peer (P2P) multiplayer functionality for your Europe Simulator game. Here's what's been added:</p>
+        
+        <div class="features">
+            <div class="feature">
+                <h4>🌐 Real P2P Networking</h4>
+                <p>WebRTC connections for direct player-to-player communication</p>
+            </div>
+            <div class="feature">
+                <h4>🏠 Room System</h4>
+                <p>Create and join game rooms with unique codes</p>
+            </div>
+            <div class="feature">
+                <h4>⚡ Real-time Sync</h4>
+                <p>All game actions sync instantly across all players</p>
+            </div>
+            <div class="feature">
+                <h4>🎮 Full Gameplay</h4>
+                <p>Attacks, fort upgrades, and country selection work multiplayer</p>
+            </div>
+        </div>
+
+        <div class="step">
+            <h3>🚀 Quick Start (Local Testing)</h3>
+            <p>For immediate testing, you can open the game directly:</p>
+            <a href="index.html" class="btn">Play Europe Simulator</a>
+            <p><small>Note: Without the server, you'll have limited P2P functionality</small></p>
+        </div>
+
+        <div class="step">
+            <h3>📦 Step 1: Install Node.js</h3>
+            <p>First, install Node.js from <a href="https://nodejs.org" target="_blank">nodejs.org</a> (choose the LTS version).</p>
+        </div>
+
+        <div class="step">
+            <h3>🔧 Step 2: Install Dependencies</h3>
+            <p>Open Command Prompt or PowerShell in this folder and run:</p>
+            <div class="code">npm install</div>
+        </div>
+
+        <div class="step">
+            <h3>▶️ Step 3: Start the Server</h3>
+            <p>Run the server with either:</p>
+            <div class="code">npm start</div>
+            <p>Or double-click the <code>start.bat</code> file</p>
+        </div>
+
+        <div class="step">
+            <h3>🎮 Step 4: Play!</h3>
+            <p>Open your browser and go to:</p>
+            <div class="code">http://localhost:3000</div>
+            <p>Share this URL with friends on your local network, or use the room codes to play together!</p>
+        </div>
+
+        <div class="warning">
+            <h4>⚠️ For Internet Play</h4>
+            <p>To play with friends over the internet, you'll need to:</p>
+            <ul>
+                <li>Deploy the server to a cloud service (Heroku, Vercel, etc.)</li>
+                <li>Or use port forwarding on your router</li>
+                <li>Update the SIGNALING_SERVER URL in script.js</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <h3>✨ What's New</h3>
+            <ul>
+                <li><strong>True P2P:</strong> Direct WebRTC connections between players</li>
+                <li><strong>WebSocket Signaling:</strong> Server helps establish connections</li>
+                <li><strong>Room Codes:</strong> Easy 4-letter codes to join games</li>
+                <li><strong>Real-time Updates:</strong> All actions sync instantly</li>
+                <li><strong>Connection Status:</strong> Visual indicators for connection health</li>
+                <li><strong>Multiplayer Combat:</strong> Attacks and fort upgrades work across players</li>
+                <li><strong>Auto-reconnect:</strong> Automatic reconnection on connection loss</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <h3>🎯 How to Play Multiplayer</h3>
+            <ol>
+                <li><strong>Create Room:</strong> Click "Create Room" to start a new game</li>
+                <li><strong>Share Code:</strong> Give the 4-letter room code to friends</li>
+                <li><strong>Join Room:</strong> Friends enter the code and click "Join Room"</li>
+                <li><strong>Select Countries:</strong> Each player clicks on a country to select it</li>
+                <li><strong>Ready Up:</strong> All players click "Ready" when they're prepared</li>
+                <li><strong>Start Game:</strong> Host clicks "Start Game" when everyone is ready</li>
+                <li><strong>Conquer Europe:</strong> Attack other countries and build forts!</li>
+            </ol>
+        </div>
+
+        <p style="text-align: center; margin-top: 40px;">
+            <strong>Ready to conquer Europe together? 🏰⚔️</strong>
+        </p>
+    </div>
+</body>
+</html>

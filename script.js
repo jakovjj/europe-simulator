@@ -87,9 +87,18 @@ let gameData = {
     countdown: 5
 };
 
-// Simple signaling server (you can replace with your own)
-const SIGNALING_SERVER = 'wss://signaling-server-example.herokuapp.com';
+// WebRTC Configuration
+const rtcConfiguration = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+};
+
+// Signaling WebSocket
 let signalingSocket = null;
+const SIGNALING_SERVER = window.location.origin.replace(/^http/, 'ws');
 
 // Available colors for players
 const PLAYER_COLORS = [
@@ -138,7 +147,56 @@ function generatePlayerId() {
     return 'player_' + Math.random().toString(36).substr(2, 9);
 }
 
-// P2P Room Management
+// Quick Play Mode (Single Player)
+function quickPlay() {
+    if (!currentPlayerId) {
+        currentPlayerId = generatePlayerId();
+    }
+    
+    isHost = true;
+    roomCode = 'SOLO'; // Special room code for single player
+    
+    // Initialize game data
+    gameData = {
+        state: 'waiting',
+        players: {},
+        provinces: {},
+        gameStartTime: null,
+        gameEndTime: null,
+        countdown: 5
+    };
+    
+    // Add player to game
+    gameData.players[currentPlayerId] = {
+        id: currentPlayerId,
+        name: `Player ${currentPlayerId.slice(-4)}`,
+        color: PLAYER_COLORS[0],
+        selectedCountry: selectedCountry,
+        isHost: true,
+        isReady: true, // Auto-ready for solo play
+        power: 10,
+        economy: 0
+    };
+    
+    // Immediately activate fallback mode for solo play
+    if (window.FallbackP2P) {
+        window.FallbackP2P.init(roomCode);
+    }
+    updateConnectionStatus('connected', 'Solo Mode');
+    
+    updateRoomUI();
+    updateGameStateUI();
+    
+    // Start economy growth timer
+    startEconomyGrowthTimer();
+    
+    // Auto-start game after short delay
+    setTimeout(() => {
+        startGame();
+    }, 1000);
+    
+    console.log('Started solo play mode');
+}
 function createRoom() {
     if (!currentPlayerId) {
         currentPlayerId = generatePlayerId();
@@ -173,6 +231,18 @@ function createRoom() {
         economy: 0
     };
     
+    // Try to connect to signaling server, fall back to local storage if it fails
+    connectToSignalingServer(() => {
+        signalingSocket.send(JSON.stringify({
+            type: 'create_room',
+            data: {
+                playerId: currentPlayerId,
+                playerInfo: gameData.players[currentPlayerId],
+                roomCode: roomCode
+            }
+        }));
+    });
+    
     updateRoomUI();
     updateGameStateUI();
     
@@ -188,114 +258,591 @@ function joinRoom(code) {
     }
     
     roomCode = code.toUpperCase();
+    isHost = false;
     
-    // Check if room exists and player limit
-    const roomKey = `europe_room_${roomCode}`;
-    const roomData = localStorage.getItem(roomKey);
-    if (roomData) {
-        const room = JSON.parse(roomData);
-        if (Object.keys(room.players).length >= MAX_PLAYERS) {
-            alert(`Room is full! Maximum ${MAX_PLAYERS} players allowed.`);
+    // Check if room exists in fallback storage first
+    if (window.FallbackP2P && window.FallbackP2P.roomExists(roomCode)) {
+        console.log('Found room in fallback storage, joining...');
+        
+        if (window.FallbackP2P.joinExistingRoom(roomCode)) {
+            updateConnectionStatus('connected', 'Fallback Mode');
+            updateRoomUI();
+            updateGameStateUI();
+            startEconomyGrowthTimer();
             return;
         }
     }
     
-    isHost = false;
+    // Add player to game data temporarily
+    const usedColors = Object.values(gameData.players).map(p => p.color);
+    const availableColors = PLAYER_COLORS.filter(c => !usedColors.includes(c));
+    const randomColor = availableColors[Math.floor(Math.random() * availableColors.length)] || PLAYER_COLORS[0];
     
-    // For simplicity, we'll use localStorage as a basic signaling mechanism
-    // In a real implementation, you'd use a proper signaling server
-    initSimpleP2P();
+    const playerInfo = {
+        id: currentPlayerId,
+        name: `Player ${currentPlayerId.slice(-4)}`,
+        color: randomColor,
+        selectedCountry: selectedCountry,
+        isHost: false,
+        isReady: false,
+        power: 10,
+        economy: 0
+    };
+    
+    // Connect to signaling server and join room
+    connectToSignalingServer(() => {
+        signalingSocket.send(JSON.stringify({
+            type: 'join_room',
+            data: {
+                playerId: currentPlayerId,
+                playerInfo: playerInfo,
+                roomCode: roomCode
+            }
+        }));
+    });
     
     console.log('Joining room:', roomCode);
+}
+
+// WebSocket Signaling
+function connectToSignalingServer(onConnected) {
+    if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+        if (onConnected) onConnected();
+        return;
+    }
+    
+    updateConnectionStatus('connecting', 'Connecting...');
+    
+    // Set up fallback timeout (shorter for better UX)
+    const fallbackTimeout = setTimeout(() => {
+        console.log('Server connection timeout, using fallback P2P');
+        activateFallbackMode(onConnected);
+    }, 2000); // Reduced to 2 seconds
+    
+    try {
+        signalingSocket = new WebSocket(SIGNALING_SERVER);
+        
+        signalingSocket.onopen = () => {
+            clearTimeout(fallbackTimeout); // Cancel fallback
+            console.log('Connected to signaling server');
+            updateConnectionStatus('connected', 'Connected');
+            
+            // Cleanup fallback if it was initialized
+            if (window.FallbackP2P && window.FallbackP2P.isActive) {
+                window.FallbackP2P.cleanup();
+            }
+            
+            if (onConnected) onConnected();
+            
+            // Send ping every 30 seconds to keep connection alive
+            setInterval(() => {
+                if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+                    signalingSocket.send(JSON.stringify({ type: 'ping' }));
+                }
+            }, 30000);
+        };
+        
+        signalingSocket.onmessage = (event) => {
+            try {
+                const { type, data } = JSON.parse(event.data);
+                handleSignalingMessage(type, data);
+            } catch (error) {
+                console.error('Error parsing signaling message:', error);
+            }
+        };
+        
+        signalingSocket.onclose = () => {
+            console.log('Disconnected from signaling server');
+            
+            // Activate fallback mode immediately on disconnect
+            if (roomCode && currentPlayerId && !window.FallbackP2P.isActive) {
+                console.log('Connection lost, switching to fallback mode');
+                activateFallbackMode();
+            } else {
+                updateConnectionStatus('disconnected', 'Disconnected');
+            }
+            
+            // Try to reconnect after 5 seconds if we're in a room and not using fallback
+            if (roomCode && currentPlayerId && !window.FallbackP2P.isActive) {
+                setTimeout(() => {
+                    console.log('Attempting to reconnect...');
+                    updateConnectionStatus('connecting', 'Reconnecting...');
+                    connectToSignalingServer();
+                }, 5000);
+            }
+        };
+        
+        signalingSocket.onerror = (error) => {
+            console.error('Signaling WebSocket error:', error);
+            clearTimeout(fallbackTimeout);
+            
+            // Use fallback immediately on error
+            activateFallbackMode(onConnected);
+        };
+        
+    } catch (error) {
+        console.error('Failed to create WebSocket:', error);
+        clearTimeout(fallbackTimeout);
+        activateFallbackMode(onConnected);
+    }
+}
+
+function activateFallbackMode(onConnected) {
+    if (roomCode && window.FallbackP2P) {
+        console.log('Activating fallback P2P mode');
+        window.FallbackP2P.init(roomCode);
+        updateConnectionStatus('connected', 'Fallback Mode');
+        
+        if (onConnected) onConnected();
+    } else {
+        updateConnectionStatus('disconnected', 'Connection Error');
+    }
+}
+
+function updateConnectionStatus(status, text) {
+    const indicator = document.getElementById('connection-indicator');
+    const textElement = document.getElementById('connection-text');
+    
+    if (indicator && textElement) {
+        // Remove all status classes
+        indicator.className = `connection-indicator ${status}`;
+        textElement.textContent = text;
+        
+        // Update peer count if connected
+        if (status === 'connected' && roomCode) {
+            const peerCount = dataChannels.size;
+            textElement.textContent = `${text} (${peerCount} peers)`;
+        }
+    }
+}
+
+function handleSignalingMessage(type, data) {
+    console.log('Signaling message:', type, data);
+    
+    switch (type) {
+        case 'room_created':
+            console.log('Room created successfully');
+            break;
+            
+        case 'room_joined':
+            console.log('Joined room successfully');
+            break;
+            
+        case 'player_joined':
+            handlePlayerJoined(data);
+            break;
+            
+        case 'player_left':
+            handlePlayerLeft(data);
+            break;
+            
+        case 'game_state':
+            gameData = data;
+            updateGameStateUI();
+            startEconomyGrowthTimer();
+            break;
+            
+        case 'game_state_update':
+            gameData = { ...gameData, ...data };
+            updateGameStateUI();
+            break;
+            
+        case 'room_closed':
+            alert('Room was closed by the host');
+            exitGame();
+            break;
+            
+        case 'webrtc_offer':
+            handleWebRTCOffer(data);
+            break;
+            
+        case 'webrtc_answer':
+            handleWebRTCAnswer(data);
+            break;
+            
+        case 'webrtc_ice_candidate':
+            handleWebRTCIceCandidate(data);
+            break;
+            
+        case 'error':
+            console.error('Signaling error:', data.message);
+            alert(data.message);
+            break;
+            
+        case 'pong':
+            // Keep-alive response
+            break;
+            
+        default:
+            console.log('Unknown signaling message:', type);
+    }
+}
+
+function handlePlayerJoined(data) {
+    const { playerId, playerInfo } = data;
+    
+    // Add player to game data
+    gameData.players[playerId] = playerInfo;
+    
+    // If we're host, initiate WebRTC connection
+    if (isHost && playerId !== currentPlayerId) {
+        initiateWebRTCConnection(playerId);
+    }
+    
+    updateGameStateUI();
+}
+
+function handlePlayerLeft(data) {
+    const { playerId } = data;
+    
+    // Remove player from game data
+    delete gameData.players[playerId];
+    
+    // Remove their provinces
+    Object.keys(gameData.provinces).forEach(province => {
+        if (gameData.provinces[province] === playerId) {
+            delete gameData.provinces[province];
+        }
+    });
+    
+    // Close WebRTC connection
+    if (peers.has(playerId)) {
+        peers.get(playerId).close();
+        peers.delete(playerId);
+    }
+    
+    if (dataChannels.has(playerId)) {
+        dataChannels.delete(playerId);
+    }
+    
+    updateGameStateUI();
+}
+
+// WebRTC P2P Connections
+async function initiateWebRTCConnection(targetPlayerId) {
+    try {
+        const peerConnection = new RTCPeerConnection(rtcConfiguration);
+        peers.set(targetPlayerId, peerConnection);
+        
+        // Create data channel
+        const dataChannel = peerConnection.createDataChannel('gameData', {
+            ordered: true
+        });
+        
+        setupDataChannel(dataChannel, targetPlayerId);
+        
+        // Handle ICE candidates
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                signalingSocket.send(JSON.stringify({
+                    type: 'webrtc_ice_candidate',
+                    data: {
+                        targetPlayerId: targetPlayerId,
+                        candidate: event.candidate
+                    }
+                }));
+            }
+        };
+        
+        // Handle incoming data channel
+        peerConnection.ondatachannel = (event) => {
+            const channel = event.channel;
+            setupDataChannel(channel, targetPlayerId);
+        };
+        
+        // Create offer
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        // Send offer through signaling server
+        signalingSocket.send(JSON.stringify({
+            type: 'webrtc_offer',
+            data: {
+                targetPlayerId: targetPlayerId,
+                offer: offer
+            }
+        }));
+        
+        console.log(`Initiated WebRTC connection to ${targetPlayerId}`);
+        
+    } catch (error) {
+        console.error('Error initiating WebRTC connection:', error);
+    }
+}
+
+async function handleWebRTCOffer(data) {
+    const { fromPlayerId, offer } = data;
+    
+    try {
+        const peerConnection = new RTCPeerConnection(rtcConfiguration);
+        peers.set(fromPlayerId, peerConnection);
+        
+        // Handle ICE candidates
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                signalingSocket.send(JSON.stringify({
+                    type: 'webrtc_ice_candidate',
+                    data: {
+                        targetPlayerId: fromPlayerId,
+                        candidate: event.candidate
+                    }
+                }));
+            }
+        };
+        
+        // Handle incoming data channel
+        peerConnection.ondatachannel = (event) => {
+            const channel = event.channel;
+            setupDataChannel(channel, fromPlayerId);
+        };
+        
+        // Set remote description and create answer
+        await peerConnection.setRemoteDescription(offer);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        
+        // Send answer through signaling server
+        signalingSocket.send(JSON.stringify({
+            type: 'webrtc_answer',
+            data: {
+                targetPlayerId: fromPlayerId,
+                answer: answer
+            }
+        }));
+        
+        console.log(`Handled WebRTC offer from ${fromPlayerId}`);
+        
+    } catch (error) {
+        console.error('Error handling WebRTC offer:', error);
+    }
+}
+
+async function handleWebRTCAnswer(data) {
+    const { fromPlayerId, answer } = data;
+    
+    try {
+        const peerConnection = peers.get(fromPlayerId);
+        if (peerConnection) {
+            await peerConnection.setRemoteDescription(answer);
+            console.log(`Handled WebRTC answer from ${fromPlayerId}`);
+        }
+    } catch (error) {
+        console.error('Error handling WebRTC answer:', error);
+    }
+}
+
+async function handleWebRTCIceCandidate(data) {
+    const { fromPlayerId, candidate } = data;
+    
+    try {
+        const peerConnection = peers.get(fromPlayerId);
+        if (peerConnection) {
+            await peerConnection.addIceCandidate(candidate);
+            console.log(`Added ICE candidate from ${fromPlayerId}`);
+        }
+    } catch (error) {
+        console.error('Error handling ICE candidate:', error);
+    }
+}
+
+function setupDataChannel(dataChannel, playerId) {
+    dataChannels.set(playerId, dataChannel);
+    
+    dataChannel.onopen = () => {
+        console.log(`Data channel opened with ${playerId}`);
+        updateConnectionStatus('connected', 'Connected');
+    };
+    
+    dataChannel.onmessage = (event) => {
+        try {
+            const message = JSON.parse(event.data);
+            handleP2PMessage(message, playerId);
+        } catch (error) {
+            console.error('Error parsing P2P message:', error);
+        }
+    };
+    
+    dataChannel.onclose = () => {
+        console.log(`Data channel closed with ${playerId}`);
+        dataChannels.delete(playerId);
+        updateConnectionStatus('connected', 'Connected');
+    };
+    
+    dataChannel.onerror = (error) => {
+        console.error(`Data channel error with ${playerId}:`, error);
+    };
+}
+
+function handleP2PMessage(message, fromPlayerId) {
+    const { type, data } = message;
+    
+    switch (type) {
+        case 'game_state_update':
+            // Merge game state updates from peers
+            gameData = { ...gameData, ...data };
+            updateGameStateUI();
+            break;
+            
+        case 'player_action':
+            // Handle player actions (attacks, fort upgrades, etc.)
+            handlePlayerAction(data, fromPlayerId);
+            break;
+            
+        default:
+            console.log('Unknown P2P message type:', type);
+    }
+}
+
+function handlePlayerAction(actionData, fromPlayerId) {
+    const { action, payload } = actionData;
+    
+    switch (action) {
+        case 'attack_country':
+            // Verify and process attack from another player
+            if (payload.attackerId === fromPlayerId) {
+                processAttackAction(payload);
+            }
+            break;
+            
+        case 'upgrade_fort':
+            // Verify and process fort upgrade from another player
+            if (payload.playerId === fromPlayerId) {
+                processFortUpgradeAction(payload);
+            }
+            break;
+            
+        case 'player_ready':
+            // Update player ready status
+            if (gameData.players[fromPlayerId]) {
+                gameData.players[fromPlayerId].isReady = payload.isReady;
+                updateGameStateUI();
+            }
+            break;
+            
+        case 'country_selected':
+            // Update player's selected country
+            if (gameData.players[fromPlayerId]) {
+                gameData.players[fromPlayerId].selectedCountry = payload.countryName;
+                gameData.players[fromPlayerId].isReady = false; // Reset ready status
+                updateGameStateUI();
+                updateProvinceDisplay();
+            }
+            break;
+            
+        default:
+            console.log('Unknown player action:', action);
+    }
+}
+
+function processAttackAction(payload) {
+    const { attackerId, countryName, attackTypeIndex, success, newEconomy } = payload;
+    
+    // Update attacker's economy
+    if (gameData.players[attackerId]) {
+        gameData.players[attackerId].economy = newEconomy;
+    }
+    
+    // Apply the attack result
+    if (success) {
+        // Remove previous owner if any
+        const previousOwner = gameData.provinces[countryName];
+        
+        // Assign country to attacking player
+        gameData.provinces[countryName] = attackerId;
+        
+        console.log(`Player ${attackerId} conquered ${countryName} via P2P`);
+    }
+    
+    // Update UI if this affects current player
+    if (attackerId === currentPlayerId) {
+        updatePlayerStatusBar();
+    }
+    
+    // Update UI
+    updateGameStateUI();
+    updateProvinceDisplay();
+    
+    // Refresh country info if it's currently displayed
+    if (currentlyDisplayedCountry === countryName) {
+        loadCountryInfo(countryName);
+    }
+}
+
+function processFortUpgradeAction(payload) {
+    const { playerId, countryName, newFortLevel, newEconomy } = payload;
+    
+    // Apply fort upgrade
+    countryFortLevels[countryName] = newFortLevel;
+    
+    // Update player's economy
+    if (gameData.players[playerId]) {
+        gameData.players[playerId].economy = newEconomy;
+    }
+    
+    console.log(`Player ${playerId} upgraded fort in ${countryName} to level ${newFortLevel} via P2P`);
+    
+    // Update UI if this affects current player
+    if (playerId === currentPlayerId) {
+        updatePlayerStatusBar();
+    }
+    
+    // Refresh country info if it's currently displayed
+    if (currentlyDisplayedCountry === countryName) {
+        loadCountryInfo(countryName);
+    }
+}
+
+// Send player action to all peers
+function broadcastPlayerAction(action, payload) {
+    const actionData = {
+        action: action,
+        payload: payload
+    };
+    
+    broadcastToP2P('player_action', actionData);
+}
+
+// Broadcast to all connected peers
+function broadcastToP2P(type, data) {
+    const message = JSON.stringify({ type, data });
+    
+    dataChannels.forEach((channel, playerId) => {
+        if (channel.readyState === 'open') {
+            try {
+                channel.send(message);
+            } catch (error) {
+                console.error(`Error sending to ${playerId}:`, error);
+            }
+        }
+    });
+    
+    // Also update through signaling server for backup
+    if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+        signalingSocket.send(JSON.stringify({
+            type: 'update_game_state',
+            data: { gameState: gameData }
+        }));
+    }
 }
 
 // Simplified P2P using localStorage for demo (works only on same computer/browser)
 // In production, you'd use WebRTC with a proper signaling server
 function initSimpleP2P() {
-    const roomKey = `europe_room_${roomCode}`;
-    
-    // Listen for room updates
-    const checkRoom = () => {
-        const roomData = localStorage.getItem(roomKey);
-        if (roomData) {
-            try {
-                const room = JSON.parse(roomData);
-                if (room.gameData) {
-                    // Join the existing game
-                    gameData = room.gameData;
-                    
-                    // Ensure all existing players have power and economy (for backward compatibility)
-                    Object.values(gameData.players).forEach(player => {
-                        if (player.power === undefined) {
-                            player.power = 10;
-                        }
-                        if (player.economy === undefined) {
-                            player.economy = 0;
-                        }
-                    });
-                    
-                    // Add ourselves if not already in
-                    if (!gameData.players[currentPlayerId]) {
-                        const usedColors = Object.values(gameData.players).map(p => p.color);
-                        const availableColors = PLAYER_COLORS.filter(c => !usedColors.includes(c));
-                        const randomColor = availableColors[Math.floor(Math.random() * availableColors.length)] || PLAYER_COLORS[0];
-                        
-                        gameData.players[currentPlayerId] = {
-                            id: currentPlayerId,
-                            name: `Player ${currentPlayerId.slice(-4)}`,
-                            color: randomColor,
-                            selectedCountry: selectedCountry,
-                            isHost: false,
-                            isReady: false,
-                            power: 10,
-                            economy: 0
-                        };
-                        
-                        // Update the room
-                        saveRoomData();
-                    }
-                    
-                    updateGameStateUI();
-                    
-                    // Start economy growth timer
-                    startEconomyGrowthTimer();
-                }
-            } catch (error) {
-                console.error('Error parsing room data:', error);
-            }
-        }
-    };
-    
-    // Check immediately and then periodically
-    checkRoom();
-    setInterval(checkRoom, 1000);
-    
-    // Listen for storage changes (real-time sync)
-    window.addEventListener('storage', (e) => {
-        if (e.key === roomKey && e.newValue) {
-            try {
-                const room = JSON.parse(e.newValue);
-                if (room.gameData) {
-                    gameData = room.gameData;
-                    updateGameStateUI();
-                }
-            } catch (error) {
-                console.error('Error syncing room data:', error);
-            }
-        }
-    });
+    // This function is now replaced by the WebRTC implementation above
+    // Keeping for backward compatibility, but it's no longer used
+    console.log('Using WebRTC P2P instead of localStorage');
 }
 
 function saveRoomData() {
-    if (!roomCode) return;
-    
-    const roomKey = `europe_room_${roomCode}`;
-    const roomData = {
-        gameData: gameData,
-        lastUpdate: Date.now()
-    };
-    
-    localStorage.setItem(roomKey, JSON.stringify(roomData));
+    // With WebRTC P2P, we broadcast changes instead of saving to localStorage
+    if (roomCode && currentPlayerId) {
+        broadcastToP2P('game_state_update', gameData);
+        
+        // Also save to fallback if active
+        if (window.FallbackP2P && window.FallbackP2P.isActive) {
+            window.FallbackP2P.saveGameState(gameData);
+        }
+    }
 }
 
 // Game State Management
@@ -342,7 +889,9 @@ function updateGameControls() {
     const roomControls = document.getElementById('room-controls');
     const playerList = document.getElementById('player-list');
     const createRoomBtn = document.getElementById('create-room-btn');
+    const quickPlayBtn = document.getElementById('quick-play-btn');
     const joinRoomSection = document.querySelector('.join-room-section');
+    const playModeInfo = document.querySelector('.play-mode-info');
     
     switch (gameData.state) {
         case 'waiting':
@@ -351,15 +900,19 @@ function updateGameControls() {
             
             if (currentPlayerId && gameData.players[currentPlayerId]) {
                 // Player is in the room - show lobby controls and player list, hide join options
-                lobbySection.style.display = 'block';
+                lobbySection.style.display = roomCode === 'SOLO' ? 'none' : 'block'; // Hide lobby for solo mode
                 gameControls.style.display = 'block';
                 if (roomControls) roomControls.style.display = 'block';
-                if (playerList) playerList.style.display = 'block';
+                if (playerList) playerList.style.display = roomCode === 'SOLO' ? 'none' : 'block'; // Hide player list for solo
                 if (createRoomBtn) createRoomBtn.style.display = 'none';
+                if (quickPlayBtn) quickPlayBtn.style.display = 'none';
                 if (joinRoomSection) joinRoomSection.style.display = 'none';
+                if (playModeInfo) playModeInfo.style.display = 'none';
                 
                 // Update lobby display
-                updateLobbyDisplay();
+                if (roomCode !== 'SOLO') {
+                    updateLobbyDisplay();
+                }
             } else if (roomCode) {
                 // In a room but not joined yet - hide everything except room controls
                 lobbySection.style.display = 'none';
@@ -367,7 +920,9 @@ function updateGameControls() {
                 if (roomControls) roomControls.style.display = 'block';
                 if (playerList) playerList.style.display = 'none';
                 if (createRoomBtn) createRoomBtn.style.display = 'none';
+                if (quickPlayBtn) quickPlayBtn.style.display = 'none';
                 if (joinRoomSection) joinRoomSection.style.display = 'none';
+                if (playModeInfo) playModeInfo.style.display = 'none';
             } else {
                 // Not in any room - show room creation/joining options
                 lobbySection.style.display = 'none';
@@ -375,7 +930,9 @@ function updateGameControls() {
                 if (roomControls) roomControls.style.display = 'block';
                 if (playerList) playerList.style.display = 'none';
                 if (createRoomBtn) createRoomBtn.style.display = 'block';
+                if (quickPlayBtn) quickPlayBtn.style.display = 'block';
                 if (joinRoomSection) joinRoomSection.style.display = 'flex';
+                if (playModeInfo) playModeInfo.style.display = 'block';
             }
             break;
             
@@ -386,9 +943,11 @@ function updateGameControls() {
             lobbySection.style.display = 'none';
             gameControls.style.display = 'block';
             if (roomControls) roomControls.style.display = 'none';
-            if (playerList) playerList.style.display = 'block';
+            if (playerList) playerList.style.display = roomCode === 'SOLO' ? 'none' : 'block';
             if (createRoomBtn) createRoomBtn.style.display = 'none';
+            if (quickPlayBtn) quickPlayBtn.style.display = 'none';
             if (joinRoomSection) joinRoomSection.style.display = 'none';
+            if (playModeInfo) playModeInfo.style.display = 'none';
             break;
             
         case 'playing':
@@ -398,19 +957,21 @@ function updateGameControls() {
             lobbySection.style.display = 'none';
             gameControls.style.display = 'block';
             if (roomControls) roomControls.style.display = 'none';
-            if (playerList) playerList.style.display = 'block';
+            if (playerList) playerList.style.display = roomCode === 'SOLO' ? 'none' : 'block';
             if (createRoomBtn) createRoomBtn.style.display = 'none';
+            if (quickPlayBtn) quickPlayBtn.style.display = 'none';
             if (joinRoomSection) joinRoomSection.style.display = 'none';
+            if (playModeInfo) playModeInfo.style.display = 'none';
             break;
             
         case 'ended':
             timerDiv.classList.add('hidden');
             countdownDiv.classList.add('hidden');
-            joinSection.style.display = 'none';
             lobbySection.style.display = 'none';
             gameControls.style.display = 'block';
             if (roomControls) roomControls.style.display = 'block';
-            if (playerList) playerList.style.display = 'block';
+            if (playerList) playerList.style.display = roomCode === 'SOLO' ? 'none' : 'block';
+            if (playModeInfo) playModeInfo.style.display = 'none';
             break;
     }
 }
@@ -526,6 +1087,11 @@ function updatePlayerCount() {
     
     if (!roomCode) {
         playerCountDiv.textContent = 'No room joined';
+        return;
+    }
+    
+    if (roomCode === 'SOLO') {
+        playerCountDiv.textContent = 'Solo Mode';
         return;
     }
     
@@ -724,15 +1290,25 @@ function exitGame() {
             }
         });
         
-        // If host is leaving, shut down the entire room
-        if (wasHost) {
-            // Clear localStorage for this room
-            if (roomCode) {
-                localStorage.removeItem(`room_${roomCode}`);
-            }
-        } else {
-            // Save updated game data without this player
-            saveRoomData();
+        // Notify signaling server
+        if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+            signalingSocket.send(JSON.stringify({
+                type: 'leave_room',
+                data: { playerId: currentPlayerId }
+            }));
+        }
+        
+        // Close all peer connections
+        peers.forEach((peerConnection) => {
+            peerConnection.close();
+        });
+        peers.clear();
+        dataChannels.clear();
+        
+        // Close signaling connection
+        if (signalingSocket) {
+            signalingSocket.close();
+            signalingSocket = null;
         }
     }
     
@@ -769,6 +1345,9 @@ function exitGame() {
     currentPlayerId = null;
     selectedCountry = null;
     
+    // Reset connection status
+    updateConnectionStatus('disconnected', 'Offline');
+    
     // Reset UI to initial state completely (order matters)
     updateRoomUI();
     updateGameStateUI();
@@ -797,6 +1376,9 @@ function setLoadingComplete() {
     if (playerList) {
         playerList.style.display = 'none';
     }
+    
+    // Initialize connection status
+    updateConnectionStatus('disconnected', 'Offline');
     
     console.log('Game data updated:', gameData);
 }
@@ -1013,8 +1595,14 @@ function changeSelectedCountry(countryName) {
         // Mark as not ready when changing country
         gameData.players[currentPlayerId].isReady = false;
         
+        // Broadcast country selection to all peers
+        broadcastPlayerAction('country_selected', {
+            countryName: countryName
+        });
+        
         updateGameStateUI();
         updateProvinceDisplay();
+        saveRoomData();
         
         console.log('Changed country to:', countryName);
     }
@@ -1376,6 +1964,15 @@ function attackCountry(countryName, attackTypeIndex = 1) {
         console.log(`${player.name} failed to conquer ${countryName}`);
     }
     
+    // Broadcast attack action to all peers
+    broadcastPlayerAction('attack_country', {
+        attackerId: currentPlayerId,
+        countryName: countryName,
+        attackTypeIndex: attackTypeIndex,
+        success: success,
+        newEconomy: player.economy
+    });
+    
     // Update UI and save state
     updateGameStateUI();
     updatePlayerStatusBar();
@@ -1418,6 +2015,14 @@ function upgradeFort(countryName) {
     // Deduct cost and upgrade fort
     player.economy = (player.economy || 0) - FORT_UPGRADE_COST;
     countryFortLevels[countryName] = currentFortLevel + 1;
+    
+    // Broadcast fort upgrade to all peers
+    broadcastPlayerAction('upgrade_fort', {
+        playerId: currentPlayerId,
+        countryName: countryName,
+        newFortLevel: countryFortLevels[countryName],
+        newEconomy: player.economy
+    });
     
     // Update UI
     updatePlayerStatusBar();
@@ -1620,6 +2225,14 @@ function setupEventListeners() {
         });
     }
     
+    // Quick Play button
+    const quickPlayBtn = document.getElementById('quick-play-btn');
+    if (quickPlayBtn) {
+        quickPlayBtn.addEventListener('click', function() {
+            quickPlay();
+        });
+    }
+    
     // Create room button
     const createRoomBtn = document.getElementById('create-room-btn');
     if (createRoomBtn) {
@@ -1708,7 +2321,14 @@ function setupEventListeners() {
                 }
                 
                 player.isReady = !player.isReady;
+                
+                // Broadcast ready status to all peers
+                broadcastPlayerAction('player_ready', {
+                    isReady: player.isReady
+                });
+                
                 updateGameStateUI();
+                saveRoomData();
             }
         });
     }
