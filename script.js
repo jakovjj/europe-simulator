@@ -233,14 +233,18 @@ function createRoom() {
     
     // Try to connect to signaling server, fall back to local storage if it fails
     connectToSignalingServer(() => {
-        signalingSocket.send(JSON.stringify({
-            type: 'create_room',
-            data: {
-                playerId: currentPlayerId,
-                playerInfo: gameData.players[currentPlayerId],
-                roomCode: roomCode
-            }
-        }));
+        // Only send signaling message if we have a valid WebSocket connection
+        if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+            signalingSocket.send(JSON.stringify({
+                type: 'create_room',
+                data: {
+                    playerId: currentPlayerId,
+                    playerInfo: gameData.players[currentPlayerId],
+                    roomCode: roomCode
+                }
+            }));
+        }
+        // If we're in fallback mode, the fallback system already handles room creation
     });
     
     updateRoomUI();
@@ -291,14 +295,18 @@ function joinRoom(code) {
     
     // Connect to signaling server and join room
     connectToSignalingServer(() => {
-        signalingSocket.send(JSON.stringify({
-            type: 'join_room',
-            data: {
-                playerId: currentPlayerId,
-                playerInfo: playerInfo,
-                roomCode: roomCode
-            }
-        }));
+        // Only send signaling message if we have a valid WebSocket connection
+        if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+            signalingSocket.send(JSON.stringify({
+                type: 'join_room',
+                data: {
+                    playerId: currentPlayerId,
+                    playerInfo: playerInfo,
+                    roomCode: roomCode
+                }
+            }));
+        }
+        // If we're in fallback mode, the fallback system already handles room joining
     });
     
     console.log('Joining room:', roomCode);
@@ -545,7 +553,7 @@ async function initiateWebRTCConnection(targetPlayerId) {
         
         // Handle ICE candidates
         peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
+            if (event.candidate && signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
                 signalingSocket.send(JSON.stringify({
                     type: 'webrtc_ice_candidate',
                     data: {
@@ -567,13 +575,15 @@ async function initiateWebRTCConnection(targetPlayerId) {
         await peerConnection.setLocalDescription(offer);
         
         // Send offer through signaling server
-        signalingSocket.send(JSON.stringify({
-            type: 'webrtc_offer',
-            data: {
-                targetPlayerId: targetPlayerId,
-                offer: offer
-            }
-        }));
+        if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+            signalingSocket.send(JSON.stringify({
+                type: 'webrtc_offer',
+                data: {
+                    targetPlayerId: targetPlayerId,
+                    offer: offer
+                }
+            }));
+        }
         
         console.log(`Initiated WebRTC connection to ${targetPlayerId}`);
         
@@ -591,7 +601,7 @@ async function handleWebRTCOffer(data) {
         
         // Handle ICE candidates
         peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
+            if (event.candidate && signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
                 signalingSocket.send(JSON.stringify({
                     type: 'webrtc_ice_candidate',
                     data: {
@@ -614,13 +624,15 @@ async function handleWebRTCOffer(data) {
         await peerConnection.setLocalDescription(answer);
         
         // Send answer through signaling server
-        signalingSocket.send(JSON.stringify({
-            type: 'webrtc_answer',
-            data: {
-                targetPlayerId: fromPlayerId,
-                answer: answer
-            }
-        }));
+        if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+            signalingSocket.send(JSON.stringify({
+                type: 'webrtc_answer',
+                data: {
+                    targetPlayerId: fromPlayerId,
+                    answer: answer
+                }
+            }));
+        }
         
         console.log(`Handled WebRTC offer from ${fromPlayerId}`);
         
